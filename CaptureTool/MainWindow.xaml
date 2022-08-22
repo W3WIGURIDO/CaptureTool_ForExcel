@@ -1,0 +1,238 @@
+﻿<Window x:Class="CaptureTool.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:CaptureTool"
+        mc:Ignorable="d"
+        Title="CaptureTool For Excel" Height="480" Width="620" Closing="Window_Closing" Loaded="Window_Loaded" StateChanged="Window_StateChanged" IsVisibleChanged="Window_IsVisibleChanged">
+    <Grid Margin="5">
+        <Grid.RowDefinitions>
+            <RowDefinition/>
+            <RowDefinition Height="auto"/>
+        </Grid.RowDefinitions>
+        <Button x:Name="InvisibleButton" Background="Transparent" BorderBrush="Transparent" Opacity="0" GotFocus="InvisibleButton_GotFocus"/>
+        <StackPanel>
+            <Grid>
+                <TextBlock Text="設定" FontWeight="Bold" FontSize="14"/>
+                <Button Content="設定リセット" HorizontalAlignment="Right" Click="ClickReset"/>
+            </Grid>
+            <TextBlock Text="キー設定(クリックで設定開始)" FontWeight="Bold"/>
+            <TextBlock Text="ウィンドウキャプチャ"/>
+            <Grid Margin="0,0,0,5">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="auto"/>
+                    <ColumnDefinition MaxWidth="150"/>
+                    <ColumnDefinition Width="auto"/>
+                    <ColumnDefinition Width="auto"/>
+                    <ColumnDefinition MaxWidth="150"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="修飾キー" Margin="0,0,5,0"/>
+                <Button x:Name="preKeyButton" Content="{Binding PreKeyText}" Grid.Column="1" Margin="0,0,5,0" Click="ClickStartSetting"/>
+                <TextBlock Text="+" Margin="0,0,5,0" Grid.Column="2"/>
+                <TextBlock Text="キー" Margin="0,0,5,0" Grid.Column="3"/>
+                <Button x:Name="keyButton" Content="{Binding KeyText}" Grid.Column="4" Click="ClickStartSetting"/>
+            </Grid>
+
+            <TextBlock Text="スクリーンキャプチャ"/>
+            <Grid Margin="0,0,0,5">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="auto"/>
+                    <ColumnDefinition MaxWidth="150"/>
+                    <ColumnDefinition Width="auto"/>
+                    <ColumnDefinition Width="auto"/>
+                    <ColumnDefinition MaxWidth="150"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="修飾キー" Margin="0,0,5,0"/>
+                <Button x:Name="screenPreKeyButton" Content="{Binding ScreenPreKeyText}" Grid.Column="1" Margin="0,0,5,0" Click="ClickStartSetting"/>
+                <TextBlock Text="+" Margin="0,0,5,0" Grid.Column="2"/>
+                <TextBlock Text="キー" Margin="0,0,5,0" Grid.Column="3"/>
+                <Button x:Name="screenKeyButton" Content="{Binding ScreenKeyText}" Grid.Column="4" Click="ClickStartSetting"/>
+            </Grid>
+
+            <TextBlock Text="Excel設定" FontWeight="Bold"/>
+            <WrapPanel Margin="0,5,0,0">
+                <Button x:Name="saveWorkBookButton" Content="上書き保存" Click="saveWorkBookButton_Click"/>
+                <Button x:Name="saveAsButton" Content="名前を付けて保存" Click="saveAsButton_Click" Margin="5,0,0,0" />
+                <Button x:Name="openFileButton" Content="開く" Grid.Column="1" Margin="5,0,0,0" MinWidth="40" Click="openFileButton_Click"/>
+                <Button x:Name="reopenFileButton" Content="開き直す" Grid.Column="2" Margin="5,0,0,0" MinWidth="40" Click="reopenFileButton_Click"/>
+                <Button x:Name="newFileButton" Content="新規作成" Grid.Column="3" Margin="5,0,0,0" Click="newFileButton_Click"/>
+            </WrapPanel>
+            <Grid Margin="0,2,0,0" Visibility="Collapsed">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="auto"/>
+                    <ColumnDefinition Width="auto"/>
+                    <ColumnDefinition Width="auto"/>
+                    <ColumnDefinition Width="auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="保存形式" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                <ComboBox x:Name="imageFormatSelect" SelectedIndex="{Binding SaveFormatIndex}" Grid.Column="1" VerticalAlignment="Center" Width="100" HorizontalAlignment="Left" ItemsSource="{Binding SaveFormats}" SelectedValuePath="Key" DisplayMemberPath="Value"/>
+                <TextBlock Text="ピクセル形式" VerticalAlignment="Center" Margin="15,0,5,0" Grid.Column="2"/>
+                <ComboBox x:Name="pixelFormatSelect" SelectedIndex="{Binding PixelFormatIndex}" Grid.Column="3" VerticalAlignment="Center" Width="100" HorizontalAlignment="Left" ItemsSource="{Binding PixelFormats}" SelectedValuePath="Key" DisplayMemberPath="Value"/>
+            </Grid>
+            <StackPanel Orientation="Horizontal" Margin="0,5,0,0" Visibility="Collapsed">
+                <TextBlock Text="保存フォルダ"/>
+                <Button x:Name="openFolderButton" Content="保存先を開く" Margin="10,0,0,0" Click="OpenFolderButton_Click"/>
+                <Button x:Name="parentFolderButton" Content="親フォルダ" Margin="10,0,0,0" Click="ParentFolderButton_Click"/>
+            </StackPanel>
+            <Grid Margin="0,2,0,0" Visibility="Collapsed">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition/>
+                    <ColumnDefinition Width="auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="saveFolder"/>
+                <Button Content="参照" Margin="5,0,0,0" Grid.Column="1" Click="ClickRef"/>
+            </Grid>
+            <Grid Margin="0,2,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="auto"/>
+                    <ColumnDefinition/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="ファイルパス"/>
+                <TextBlock Grid.Column="1" Text="{Binding FileName}" TextWrapping="Wrap" Margin="5,0,0,0" FontStyle="Italic"/>
+                <TextBox x:Name="fileNameBox" Grid.Column="1" Text="{Binding FileName}" Visibility="Collapsed"/>
+            </Grid>
+
+            <WrapPanel x:Name="workSheetGrid" Margin="0,2,0,0">
+                <TextBlock Text="ワークシート" VerticalAlignment="Center" Grid.Column="0" HorizontalAlignment="Left"/>
+                <ComboBox x:Name="WorkSheetSelect" SelectedIndex="{Binding WorkSheetsIndex}" Grid.Column="1" Width="auto" HorizontalAlignment="Left" ItemsSource="{Binding WorkSheets}" SelectedValuePath="Key" DisplayMemberPath="Value" Margin="5,0,0,0"/>
+                <Button x:Name="addWorkSheetButton" Content="追加" Grid.Column="2" ToolTip="新規シートを追加" Click="addWorkSheetButton_Click" Margin="2,0,0,0"/>
+                <Button x:Name="renameWorkSheetButton" Content="変更" Grid.Column="3" ToolTip="シート名を編集" Click="renameWorkSheetButton_Click" Margin="2,0,0,0"/>
+                <Button x:Name="deleteWorkSheetButton" Content="削除" Grid.Column="4" ToolTip="シートを削除" Click="deleteWorkSheetButton_Click" Margin="2,0,0,0"/>
+                <Button x:Name="sortWorkSheetButton" Content="並び替え" Grid.Column="5" ToolTip="シートを並び変える" Margin="2,0,0,0" Click="sortWorkSheetButton_Click"/>
+                <Button x:Name="copyWorkSheetButton" Content="コピー" Grid.Column="6" ToolTip="シートをコピーする" Margin="2,0,0,0" Click="copyWorkSheetButton_Click"/>
+            </WrapPanel>
+            <WrapPanel Margin="0,5,0,0">
+                <TextBlock Text="画像 挿入行"/>
+                <TextBox Grid.Column="1" Text="{Binding Row}" Margin="0,0,5,0" Width="45"/>
+                <Button x:Name="viewImageListButton" Content="一覧" Grid.Column="2" Click="viewImageListButton_Click"/>
+                <Button x:Name="addImageListButton" Content="追加" Grid.Column="3" Margin="2,0,0,0"/>
+                <Button x:Name="deleteImageListButton" Content="削除" Grid.Column="4" Click="deleteImageListButton_Click" Margin="2,0,0,0"/>
+            </WrapPanel>
+            <StackPanel Orientation="Horizontal" x:Name="countButtonPanel" Visibility="Collapsed"/>
+            <Grid Margin="0,2,0,0" Visibility="Collapsed">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="auto"/>
+                    <ColumnDefinition Width="auto"/>
+                    <ColumnDefinition Width="auto"/>
+                    <ColumnDefinition Width="auto"/>
+                    <ColumnDefinition Width="auto"/>
+                    <ColumnDefinition Width="auto"/>
+                    <ColumnDefinition Width="auto"/>
+                    <ColumnDefinition Width="auto"/>
+                    <ColumnDefinition Width="auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="連番付加"/>
+                <CheckBox Grid.Column="1" IsChecked="{Binding EnableNumber}"/>
+                <TextBlock Text="桁数" Grid.Column="2" Margin="5,0,0,0"/>
+                <TextBox x:Name="digitsTextBox" Grid.Column="3" Text="{Binding DigitsText}" TextChanged="DigitsTextBox_TextChanged" MinWidth="30"/>
+                <TextBlock Text="カウント：" Grid.Column="4" Margin="5,0,0,0"/>
+                <TextBox x:Name="countTextBox" Grid.Column="5" Text="{Binding NumberCount}" MinWidth="30" TextChanged="CountTextBox_TextChanged"/>
+                <StackPanel Grid.Column="6" Margin="0,0,1,0">
+                    <Button x:Name="countUpButton" FontSize="5" MinWidth="20" Click="CountUpButton_Click">
+                        <Button.Content>
+                            <TextBlock Text="▲" RenderTransformOrigin="0.5,0.5">
+                                <TextBlock.RenderTransform>
+                                    <ScaleTransform ScaleX="3.5" ScaleY="1.3"/>
+                                </TextBlock.RenderTransform>
+                            </TextBlock>
+                        </Button.Content>
+                    </Button>
+                    <Button x:Name="countDownButton" FontSize="5" MinWidth="20" Click="CountDownButton_Click">
+                        <Button.Content>
+                            <TextBlock Text="▼" RenderTransformOrigin="0.5,1">
+                                <TextBlock.RenderTransform>
+                                    <ScaleTransform ScaleX="3.5" ScaleY="1.3"/>
+                                </TextBlock.RenderTransform>
+                            </TextBlock>
+                        </Button.Content>
+                    </Button>
+                </StackPanel>
+                <Button Content="リセット" Grid.Column="7" Click="NumberResetClick"/>
+                <Button x:Name="continueButton" Content="続行" Grid.Column="8" Click="ContinueButton_Click"/>
+            </Grid>
+            <Grid Margin="0,2,0,0" Visibility="Collapsed">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="auto"/>
+                    <ColumnDefinition/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="次回保存ファイル名："/>
+                <TextBlock Text="{Binding SampleFileName}" Margin="5,0,0,0" Grid.Column="1" TextWrapping="Wrap"/>
+            </Grid>
+            <TextBlock Text="ファイル名オプション" Visibility="Collapsed"/>
+            <TextBlock Text="&lt;WindowTitle&gt;=ウィンドウタイトル, &lt;Date&gt;=日付, &lt;Time&gt;=時刻" Visibility="Collapsed"/>
+            <TextBlock Text="オーバーレイ設定" FontWeight="Bold" Margin="0,2,0,0"/>
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition/>
+                    <RowDefinition/>
+                    <RowDefinition/>
+                </Grid.RowDefinitions>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="オーバーレイ表示"/>
+                    <CheckBox Grid.Column="1" IsChecked="{Binding EnableOverlay}"/>
+                </StackPanel>
+                <Grid Grid.Row="1" IsEnabled="{Binding EnableOverlay}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="auto"/>
+                        <ColumnDefinition MinWidth="45" MaxWidth="100"/>
+                        <ColumnDefinition Width="auto"/>
+                        <ColumnDefinition Width="auto"/>
+                        <ColumnDefinition Width="auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="表示時間" Margin="0,0,5,0"/>
+                    <TextBox x:Name="overlayTimeTextBox" Grid.Column="1" ToolTip="ミリ秒で入力" Text="{Binding OverlayTime}" TextChanged="OverlayTimeTextBox_TextChanged"/>
+                    <TextBlock Grid.Column="2" Text="ms"/>
+                    <TextBlock Grid.Column="3" Text="位置" Margin="15,0,5,0"/>
+                    <ComboBox x:Name="positionSelect" SelectedIndex="{Binding PositionIndex}" Grid.Column="4" VerticalAlignment="Center" Width="100" HorizontalAlignment="Left" ItemsSource="{Binding ViewPosition}" SelectedValuePath="Value" DisplayMemberPath="Key"/>
+                </Grid>
+                <Grid Grid.Row="2" IsEnabled="{Binding EnableOverlay}" Margin="0,2,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="auto"/>
+                        <ColumnDefinition Width="auto"/>
+                        <ColumnDefinition MinWidth="45" MaxWidth="150"/>
+                        <ColumnDefinition Width="auto"/>
+                        <ColumnDefinition MinWidth="45" MaxWidth="150"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="表示サイズ："/>
+                    <TextBlock Text="幅" Grid.Column="1" Margin="15,0,0,0"/>
+                    <TextBox Text="{Binding OverlayX}" Grid.Column="2"/>
+                    <TextBlock Text="高さ" Grid.Column="3" Margin="5,0,0,0"/>
+                    <TextBox Text="{Binding OverlayY}" Grid.Column="4"/>
+                </Grid>
+            </Grid>
+            <TextBlock Text="キャプチャ設定" FontWeight="Bold" Margin="0,2,0,0"/>
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="Aero対応" Grid.Column="2"/>
+                <CheckBox x:Name="enableAeroBox" Grid.Column="3" IsChecked="{Binding EnableAero}" VerticalAlignment="Center" Margin="0,0,5,0" IsEnabled="{Binding DisableAero}"/>
+                <TextBlock Text="キャプチャ方式切り替え"/>
+                <!--<CheckBox Grid.Column="1" IsChecked="{Binding EnableChangeCapture}" VerticalAlignment="Center" Margin="0,0,5,0"/>-->
+                <ComboBox x:Name="captureModeSelect" SelectedIndex="{Binding CaptureModeIndex}" Grid.Column="1" VerticalAlignment="Center" Width="150" HorizontalAlignment="Left" ItemsSource="{Binding CaptureModes}" SelectedValuePath="Key" DisplayMemberPath="Value" Margin="5,0,0,0"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="マウスカーソルをキャプチャ"/>
+                <CheckBox Grid.Column="1" IsChecked="{Binding EnableCursor}" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                <TextBlock Text="カーソルアイコンを矢印に固定"/>
+                <CheckBox IsEnabled="{Binding EnableCursor}" IsChecked="{Binding EnableSetArrow}"/>
+            </StackPanel>
+            <TextBlock Text="その他" FontWeight="Bold" Margin="0,2,0,0"/>
+            <WrapPanel Orientation="Horizontal">
+                <TextBlock Text="最小化でタスクトレイアイコン化"/>
+                <CheckBox IsChecked="{Binding EnableTray}" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                <TextBlock Text="ミニ画面" Visibility="Collapsed"/>
+                <CheckBox x:Name="miniModeCheck" VerticalAlignment="Center" Margin="0,0,5,0" Checked="MiniModeCheck_Checked" Visibility="Collapsed"/>
+                <TextBlock Text="終了時設定保存"/>
+                <CheckBox IsChecked="{Binding EnableAutoSave}" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                <TextBlock Text="ワークシート名自動入力"/>
+                <CheckBox IsChecked="{Binding AutoSetWorkSheetName}" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                <TextBlock Text="画像一覧自動更新"/>
+                <CheckBox IsChecked="{Binding EnableImageGridSourceAutoUpdate}" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                <TextBlock Text="自動保存"/>
+                <CheckBox x:Name="EnableWorkBookAutoSaveCheckBox" IsChecked="{Binding EnableWorkBookAutoSave}" VerticalAlignment="Center" Margin="0,0,5,0" Checked="EnableWorkBookAutoSaveCheckBox_Checked" Unchecked="EnableWorkBookAutoSaveCheckBox_Checked"/>
+            </WrapPanel>
+        </StackPanel>
+        <Grid Grid.Row="1">
+            <Button x:Name="saveButton" Content="設定保存" Click="ClickSave"/>
+        </Grid>
+    </Grid>
+</Window>

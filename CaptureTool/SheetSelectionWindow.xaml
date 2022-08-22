@@ -1,0 +1,41 @@
+﻿<Window x:Class="CaptureTool.SheetSelectionWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:CaptureTool"
+        mc:Ignorable="d"
+        Title="SheetSelectionWindow" Height="450" Width="400">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <ListView ItemsSource="{Binding WorkSheetInfos}" SelectionMode="Single">
+            <ListView.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <StackPanel/>
+                </ItemsPanelTemplate>
+            </ListView.ItemsPanel>
+            <ListView.ItemTemplate>
+                <DataTemplate>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="50"/>
+                            <ColumnDefinition/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Orientation="Horizontal">
+                            <Button x:Name="upButton" Content="▲" Margin="0,0,5,0" Click="upButton_Click" IsEnabled="{Binding UpisEnabled}"/>
+                            <Button x:Name="downButton" Content="▼" IsEnabled="{Binding DownisEnabled}" Click="downButton_Click"/>
+                        </StackPanel>
+                        <TextBlock Text="{Binding SheetName}" Grid.Column="1"/>
+                    </Grid>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="okButton" Content="決定" MinWidth="50" Click="okButton_Click"/>
+            <Button x:Name="cancelButton" Content="キャンセル" Margin="5,0,0,0" Click="cancelButton_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>
