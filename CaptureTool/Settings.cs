@@ -94,6 +94,44 @@ namespace CaptureTool
             get => _ScreenPreKeyText;
         }
 
+        private Keys _MSaveKey;
+        public Keys MSaveKey
+        {
+            get => _MSaveKey;
+            set
+            {
+                _MSaveKey = value;
+                _MSaveKeyText = Enum.GetName(typeof(Keys), value);
+                RaisePropertyChanged();
+                RaisePropertyChanged(nameof(MSaveKeyText));
+            }
+        }
+
+        private Keys _MSavePreKey;
+        public Keys MSavePreKey
+        {
+            get => _MSavePreKey;
+            set
+            {
+                _MSavePreKey = value;
+                _MSavePreKeyText = Enum.GetName(typeof(Keys), value);
+                RaisePropertyChanged();
+                RaisePropertyChanged(nameof(MSavePreKeyText));
+            }
+        }
+
+        private string _MSaveKeyText;
+        public string MSaveKeyText
+        {
+            get => _MSaveKeyText;
+        }
+
+        private string _MSavePreKeyText;
+        public string MSavePreKeyText
+        {
+            get => _MSavePreKeyText;
+        }
+
         private Keys _SelectKey;
         public Keys SelectKey
         {
@@ -589,7 +627,11 @@ namespace CaptureTool
                 {
                     try
                     {
-                        return (Keys)keysConverter.ConvertFromString(tmpel.Element(name).Value);
+                        if (tmpel.Element(name) is XElement xElement && xElement.Value is string keyName)
+                        {
+                            return (Keys)keysConverter.ConvertFromString(keyName);
+                        }
+                        return defaultKey;
                     }
                     catch (Exception ex)
                     {
@@ -603,6 +645,8 @@ namespace CaptureTool
                 ScreenPreKey = GetKeyFromString(nameof(ScreenPreKey), Keys.Alt);
                 SelectKey = GetKeyFromString(nameof(SelectKey), Keys.S);
                 SelectPreKey = GetKeyFromString(nameof(SelectPreKey), Keys.Alt);
+                MSaveKey = GetKeyFromString(nameof(MSaveKey), Keys.S);
+                MSavePreKey = GetKeyFromString(nameof(MSavePreKey), Keys.Alt);
 
                 string GetStringFromSettingFile(string name, string defaultString)
                 {
@@ -723,7 +767,9 @@ namespace CaptureTool
                 new XElement(nameof(PixelFormatIndex), PixelFormatIndex.ToString()),
                 new XElement(nameof(CaptureModeIndex), CaptureModeIndex.ToString()),
                 new XElement(nameof(AutoSetWorkSheetName), AutoSetWorkSheetName.ToString()),
-                new XElement(nameof(EnableImageGridSourceAutoUpdate), EnableImageGridSourceAutoUpdate.ToString())
+                new XElement(nameof(EnableImageGridSourceAutoUpdate), EnableImageGridSourceAutoUpdate.ToString(),
+                new XElement(nameof(MSaveKey), MSaveKey.ToString()),
+                new XElement(nameof(MSavePreKey), MSavePreKey.ToString()))
                 );
             XDocument xml = new XDocument(new XDeclaration("1.0", "utf-8", "true"), tmpel);
             xml.Save(AppDomain.CurrentDomain.BaseDirectory + SettingFile);
@@ -774,6 +820,8 @@ namespace CaptureTool
             PixelFormatIndex = 0;
             CaptureModeIndex = 1;
             EnableWorkBookAutoSave = true;
+            MSaveKey = Keys.S;
+            MSavePreKey = Keys.Alt;
         }
     }
 

@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:CaptureTool"
         mc:Ignorable="d"
-        Title="CaptureTool For Excel" Height="480" Width="620" Closing="Window_Closing" Loaded="Window_Loaded" StateChanged="Window_StateChanged" IsVisibleChanged="Window_IsVisibleChanged">
+        Title="CaptureTool For Excel" Height="520" Width="620" Closing="Window_Closing" Loaded="Window_Loaded" StateChanged="Window_StateChanged" IsVisibleChanged="Window_IsVisibleChanged">
     <Grid Margin="5">
         <Grid.RowDefinitions>
             <RowDefinition/>
@@ -48,6 +48,22 @@
                 <TextBlock Text="+" Margin="0,0,5,0" Grid.Column="2"/>
                 <TextBlock Text="キー" Margin="0,0,5,0" Grid.Column="3"/>
                 <Button x:Name="screenKeyButton" Content="{Binding ScreenKeyText}" Grid.Column="4" Click="ClickStartSetting"/>
+            </Grid>
+            
+            <TextBlock Text="ワークブック上書き保存"/>
+            <Grid Margin="0,0,0,5">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="auto"/>
+                    <ColumnDefinition MaxWidth="150"/>
+                    <ColumnDefinition Width="auto"/>
+                    <ColumnDefinition Width="auto"/>
+                    <ColumnDefinition MaxWidth="150"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="修飾キー" Margin="0,0,5,0"/>
+                <Button x:Name="mSavePreKeyButton" Content="{Binding MSavePreKeyText}" Grid.Column="1" Margin="0,0,5,0" Click="ClickStartSetting"/>
+                <TextBlock Text="+" Margin="0,0,5,0" Grid.Column="2"/>
+                <TextBlock Text="キー" Margin="0,0,5,0" Grid.Column="3"/>
+                <Button x:Name="mSaveKeyButton" Content="{Binding MSaveKeyText}" Grid.Column="4" Click="ClickStartSetting"/>
             </Grid>
 
             <TextBlock Text="Excel設定" FontWeight="Bold"/>
@@ -228,7 +244,7 @@
                 <TextBlock Text="画像一覧自動更新"/>
                 <CheckBox IsChecked="{Binding EnableImageGridSourceAutoUpdate}" VerticalAlignment="Center" Margin="0,0,5,0"/>
                 <TextBlock Text="自動保存"/>
-                <CheckBox x:Name="EnableWorkBookAutoSaveCheckBox" IsChecked="{Binding EnableWorkBookAutoSave}" VerticalAlignment="Center" Margin="0,0,5,0" Checked="EnableWorkBookAutoSaveCheckBox_Checked" Unchecked="EnableWorkBookAutoSaveCheckBox_Checked"/>
+                <CheckBox x:Name="EnableWorkBookAutoSaveCheckBox" IsChecked="{Binding EnableWorkBookAutoSave}" VerticalAlignment="Center" Margin="0,0,5,0" Checked="EnableWorkBookAutoSaveCheckBox_Checked" Unchecked="EnableWorkBookAutoSaveCheckBox_Checked" ToolTip="ワークブックの自動保存を行うかどうか"/>
             </WrapPanel>
         </StackPanel>
         <Grid Grid.Row="1">

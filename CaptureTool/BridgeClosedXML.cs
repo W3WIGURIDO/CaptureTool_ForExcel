@@ -235,8 +235,7 @@ namespace CaptureTool
                 return al;
             }).ToArray();
             prevSheet.Delete();
-            workbook.Save();
-            ModFlag = false;
+            ManualSave();
         }
 
         public bool[] DeleteImages(bool[] deleteSettings)

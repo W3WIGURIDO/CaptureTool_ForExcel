@@ -26,10 +26,12 @@ namespace CaptureTool
         public static MainWindow ActiveWindow { get => _ActiveWindow; }
         private HotKey windowHotKey;
         private HotKey screenHotKey;
+        private HotKey mSaveHotKey;
         private Settings settings = new Settings();
         private NotifyIconWrapper notifyIcon;
         private static string WindowCapture = "WindowCapture";
         private static string ScreenCapture = "ScreenCapture";
+        private static string ManualSaveStr = "ManualSave";
         //private bool loadFinished = false;
         private bool isNoFileMode = false;
         private MiniWindow miniWindow;
@@ -77,6 +79,7 @@ namespace CaptureTool
             }
             windowHotKey.Dispose();
             screenHotKey.Dispose();
+            mSaveHotKey.Dispose();
             if (settings.EnableAutoSave == true)
             {
                 settings.SaveSettings();
@@ -98,12 +101,15 @@ namespace CaptureTool
             windowHotKey.HotKeyPush += new EventHandler(HotKey_HotKeyPush);
             screenHotKey = new HotKey(EnumScan.FlagToMOD_KEY(settings.ScreenPreKey), settings.ScreenKey) { HotKeyName = ScreenCapture };
             screenHotKey.HotKeyPush += new EventHandler(HotKey_HotKeyPush);
+            mSaveHotKey = new HotKey(EnumScan.FlagToMOD_KEY(settings.MSavePreKey), settings.MSaveKey) { HotKeyName = ManualSaveStr };
+            mSaveHotKey.HotKeyPush += new EventHandler(HotKey_HotKeyPushMSave);
         }
 
         private void ResetHotKey()
         {
             windowHotKey.Dispose();
             screenHotKey.Dispose();
+            mSaveHotKey.Dispose();
             StartHotKey();
         }
 
@@ -170,6 +176,17 @@ namespace CaptureTool
                         }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
                     }
                 });
+            }
+        }
+
+        private void HotKey_HotKeyPushMSave(object sender, EventArgs e)
+        {
+            if (sender is HotKey tmpHotKey)
+            {
+                if (tmpHotKey.HotKeyName == ManualSaveStr)
+                {
+                    saveWorkBookButton_Click(null, null);
+                }
             }
         }
 
@@ -594,6 +611,7 @@ namespace CaptureTool
                 isNoFileMode = true;
                 windowHotKey.Dispose();
                 screenHotKey.Dispose();
+                mSaveHotKey.Dispose();
             }
         }
 
@@ -761,7 +779,7 @@ namespace CaptureTool
         private void EnableWorkBookAutoSaveCheckBox_Checked(object sender, RoutedEventArgs e)
         {
             bool isEnableWorkBookAutoSave = settings.EnableWorkBookAutoSave == true;
-            if(closedXML != null)
+            if (closedXML != null)
             {
                 closedXML.AutoSave = isEnableWorkBookAutoSave;
             }
