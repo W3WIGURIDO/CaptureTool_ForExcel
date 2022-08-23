@@ -807,11 +807,11 @@ namespace CaptureTool
                 new XElement(nameof(PixelFormatIndex), PixelFormatIndex.ToString()),
                 new XElement(nameof(CaptureModeIndex), CaptureModeIndex.ToString()),
                 new XElement(nameof(AutoSetWorkSheetName), AutoSetWorkSheetName.ToString()),
-                new XElement(nameof(EnableImageGridSourceAutoUpdate), EnableImageGridSourceAutoUpdate.ToString(),
+                new XElement(nameof(EnableImageGridSourceAutoUpdate), EnableImageGridSourceAutoUpdate.ToString()),
                 new XElement(nameof(MSaveKey), MSaveKey.ToString()),
                 new XElement(nameof(MSavePreKey), MSavePreKey.ToString()),
                 new XElement(nameof(AddSheetKey), AddSheetKey.ToString()),
-                new XElement(nameof(AddSheetPreKey), AddSheetPreKey.ToString()))
+                new XElement(nameof(AddSheetPreKey), AddSheetPreKey.ToString())
                 );
             XDocument xml = new XDocument(new XDeclaration("1.0", "utf-8", "true"), tmpel);
             xml.Save(AppDomain.CurrentDomain.BaseDirectory + SettingFile);
