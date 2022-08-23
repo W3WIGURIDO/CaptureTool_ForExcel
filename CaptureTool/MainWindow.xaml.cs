@@ -107,6 +107,7 @@ namespace CaptureTool
             mSaveHotKey.HotKeyPush += new EventHandler(HotKey_HotKeyPushMSave);
             addSheetHotKey = new HotKey(EnumScan.FlagToMOD_KEY(settings.AddSheetPreKey), settings.AddSheetKey) { HotKeyName = AddSheetStr };
             addSheetHotKey.HotKeyPush += new EventHandler(HotKey_HotKeyPushAddSheet);
+            hotKeys = new List<HotKey>() { windowHotKey, screenHotKey, mSaveHotKey, addSheetHotKey };
         }
 
         private void ResetHotKey()
@@ -117,11 +118,11 @@ namespace CaptureTool
 
         private void DisposeHotKeys()
         {
-            if(hotKeys != null)
+            if (hotKeys != null)
             {
                 foreach (HotKey hotKey in hotKeys)
                 {
-                    if(hotKey != null)
+                    if (hotKey != null)
                     {
                         hotKey.Dispose();
                     }
@@ -134,7 +135,6 @@ namespace CaptureTool
             StartHotKey();
             //loadFinished = true;
             WorkSheetSelect.SelectionChanged += WorkSheetSelect_SelectionChanged;
-            hotKeys = new List<HotKey>() { windowHotKey, screenHotKey, mSaveHotKey, addSheetHotKey };
         }
 
         private void HotKey_HotKeyPush(object sender, EventArgs e)
@@ -247,45 +247,49 @@ namespace CaptureTool
             const string inputText = "キーを入力";
             if (sender is Button button)
             {
-                if (sender == keyButton)
+                System.Windows.Forms.Keys buttonSetting(bool enablePreMode, string text)
                 {
                     button.Content = inputText;
-                    settings.Key = ShowKeyInputDialog(false);
-                    Binding binding = new Binding("KeyText")
+                    System.Windows.Forms.Keys key = ShowKeyInputDialog(enablePreMode);
+                    Binding binding = new Binding(text)
                     {
                         Source = settings
                     };
                     button.SetBinding(Button.ContentProperty, binding);
+                    return key;
+                }
+
+                if (sender == keyButton)
+                {
+                    settings.Key = buttonSetting(false, "KeyText");
                 }
                 else if (sender == preKeyButton)
                 {
-                    button.Content = inputText;
-                    settings.PreKey = ShowKeyInputDialog(true);
-                    Binding binding = new Binding("PreKeyText")
-                    {
-                        Source = settings
-                    };
-                    button.SetBinding(Button.ContentProperty, binding);
+                    settings.PreKey = buttonSetting(true, "PreKeyText");
                 }
                 else if (sender == screenKeyButton)
                 {
-                    button.Content = inputText;
-                    settings.ScreenKey = ShowKeyInputDialog(false);
-                    Binding binding = new Binding("ScreenKeyText")
-                    {
-                        Source = settings
-                    };
-                    button.SetBinding(Button.ContentProperty, binding);
+                    settings.ScreenKey = buttonSetting(false, "ScreenKeyText");
                 }
                 else if (sender == screenPreKeyButton)
                 {
-                    button.Content = inputText;
-                    settings.ScreenPreKey = ShowKeyInputDialog(true);
-                    Binding binding = new Binding("ScreenPreKeyText")
-                    {
-                        Source = settings
-                    };
-                    button.SetBinding(Button.ContentProperty, binding);
+                    settings.ScreenPreKey = buttonSetting(true, "ScreenPreKeyText");
+                }
+                else if (sender == mSaveKeyButton)
+                {
+                    settings.MSaveKey = buttonSetting(false, "MSaveKeyText");
+                }
+                else if (sender == mSavePreKeyButton)
+                {
+                    settings.MSavePreKey = buttonSetting(true, "MSavePreKeyText");
+                }
+                else if (sender == addSheetKeyButton)
+                {
+                    settings.AddSheetKey = buttonSetting(false, "AddSheetKeyText");
+                }
+                else if (sender == addSheetPreKeyButton)
+                {
+                    settings.AddSheetPreKey = buttonSetting(true, "AddSheetPreKeyText");
                 }
                 ResetHotKey();
             }
