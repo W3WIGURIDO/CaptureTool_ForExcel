@@ -27,11 +27,14 @@ namespace CaptureTool
         private HotKey windowHotKey;
         private HotKey screenHotKey;
         private HotKey mSaveHotKey;
+        private HotKey addSheetHotKey;
+        private List<HotKey> hotKeys;
         private Settings settings = new Settings();
         private NotifyIconWrapper notifyIcon;
         private static string WindowCapture = "WindowCapture";
         private static string ScreenCapture = "ScreenCapture";
         private static string ManualSaveStr = "ManualSave";
+        private static string AddSheetStr = "AddSheet";
         //private bool loadFinished = false;
         private bool isNoFileMode = false;
         private MiniWindow miniWindow;
@@ -39,6 +42,7 @@ namespace CaptureTool
         private static MainWindow mainWindow;
         private BridgeClosedXML closedXML;
         private Dictionary<string, ImageGridWindow> imageGridList = new Dictionary<string, ImageGridWindow>();
+        private bool visibleAddSheetWindow = false;
 
         public static MainWindow GetMainWindow()
         {
@@ -77,9 +81,7 @@ namespace CaptureTool
                     return;
                 }
             }
-            windowHotKey.Dispose();
-            screenHotKey.Dispose();
-            mSaveHotKey.Dispose();
+            DisposeHotKeys();
             if (settings.EnableAutoSave == true)
             {
                 settings.SaveSettings();
@@ -103,14 +105,28 @@ namespace CaptureTool
             screenHotKey.HotKeyPush += new EventHandler(HotKey_HotKeyPush);
             mSaveHotKey = new HotKey(EnumScan.FlagToMOD_KEY(settings.MSavePreKey), settings.MSaveKey) { HotKeyName = ManualSaveStr };
             mSaveHotKey.HotKeyPush += new EventHandler(HotKey_HotKeyPushMSave);
+            addSheetHotKey = new HotKey(EnumScan.FlagToMOD_KEY(settings.AddSheetPreKey), settings.AddSheetKey) { HotKeyName = AddSheetStr };
+            addSheetHotKey.HotKeyPush += new EventHandler(HotKey_HotKeyPushAddSheet);
         }
 
         private void ResetHotKey()
         {
-            windowHotKey.Dispose();
-            screenHotKey.Dispose();
-            mSaveHotKey.Dispose();
+            DisposeHotKeys();
             StartHotKey();
+        }
+
+        private void DisposeHotKeys()
+        {
+            if(hotKeys != null)
+            {
+                foreach (HotKey hotKey in hotKeys)
+                {
+                    if(hotKey != null)
+                    {
+                        hotKey.Dispose();
+                    }
+                }
+            }
         }
 
         private void Window_Loaded(object sender, RoutedEventArgs e)
@@ -118,6 +134,7 @@ namespace CaptureTool
             StartHotKey();
             //loadFinished = true;
             WorkSheetSelect.SelectionChanged += WorkSheetSelect_SelectionChanged;
+            hotKeys = new List<HotKey>() { windowHotKey, screenHotKey, mSaveHotKey, addSheetHotKey };
         }
 
         private void HotKey_HotKeyPush(object sender, EventArgs e)
@@ -186,6 +203,16 @@ namespace CaptureTool
                 if (tmpHotKey.HotKeyName == ManualSaveStr)
                 {
                     saveWorkBookButton_Click(null, null);
+                }
+            }
+        }
+        private void HotKey_HotKeyPushAddSheet(object sender, EventArgs e)
+        {
+            if (sender is HotKey tmpHotKey)
+            {
+                if (tmpHotKey.HotKeyName == AddSheetStr)
+                {
+                    addWorkSheetButton_Click(null, null);
                 }
             }
         }
@@ -439,6 +466,11 @@ namespace CaptureTool
 
         private void addWorkSheetButton_Click(object sender, RoutedEventArgs e)
         {
+            if (visibleAddSheetWindow)
+            {
+                return;
+            }
+            visibleAddSheetWindow = true;
             bool result = false;
             string name;
             if (settings.AutoSetWorkSheetName == true)
@@ -472,6 +504,7 @@ namespace CaptureTool
                 closedXML.AddWorkSheet(name);
                 settings.WorkSheetsIndex = settings.WorkSheets.Values.ToList().IndexOf(name);
             }
+            visibleAddSheetWindow = false;
         }
 
         private void renameWorkSheetButton_Click(object sender, RoutedEventArgs e)
@@ -609,9 +642,7 @@ namespace CaptureTool
             else
             {
                 isNoFileMode = true;
-                windowHotKey.Dispose();
-                screenHotKey.Dispose();
-                mSaveHotKey.Dispose();
+                DisposeHotKeys();
             }
         }
 

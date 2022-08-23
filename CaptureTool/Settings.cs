@@ -132,6 +132,44 @@ namespace CaptureTool
             get => _MSavePreKeyText;
         }
 
+        private Keys _AddSheetKey;
+        public Keys AddSheetKey
+        {
+            get => _AddSheetKey;
+            set
+            {
+                _AddSheetKey = value;
+                _AddSheetKeyText = Enum.GetName(typeof(Keys), value);
+                RaisePropertyChanged();
+                RaisePropertyChanged(nameof(AddSheetKeyText));
+            }
+        }
+
+        private Keys _AddSheetPreKey;
+        public Keys AddSheetPreKey
+        {
+            get => _AddSheetPreKey;
+            set
+            {
+                _AddSheetPreKey = value;
+                _AddSheetPreKeyText = Enum.GetName(typeof(Keys), value);
+                RaisePropertyChanged();
+                RaisePropertyChanged(nameof(AddSheetPreKeyText));
+            }
+        }
+
+        private string _AddSheetKeyText;
+        public string AddSheetKeyText
+        {
+            get => _AddSheetKeyText;
+        }
+
+        private string _AddSheetPreKeyText;
+        public string AddSheetPreKeyText
+        {
+            get => _AddSheetPreKeyText;
+        }
+
         private Keys _SelectKey;
         public Keys SelectKey
         {
@@ -647,6 +685,8 @@ namespace CaptureTool
                 SelectPreKey = GetKeyFromString(nameof(SelectPreKey), Keys.Alt);
                 MSaveKey = GetKeyFromString(nameof(MSaveKey), Keys.S);
                 MSavePreKey = GetKeyFromString(nameof(MSavePreKey), Keys.Alt);
+                AddSheetKey = GetKeyFromString(nameof(AddSheetKey), Keys.W);
+                AddSheetPreKey = GetKeyFromString(nameof(AddSheetPreKey), Keys.Alt);
 
                 string GetStringFromSettingFile(string name, string defaultString)
                 {
@@ -769,7 +809,9 @@ namespace CaptureTool
                 new XElement(nameof(AutoSetWorkSheetName), AutoSetWorkSheetName.ToString()),
                 new XElement(nameof(EnableImageGridSourceAutoUpdate), EnableImageGridSourceAutoUpdate.ToString(),
                 new XElement(nameof(MSaveKey), MSaveKey.ToString()),
-                new XElement(nameof(MSavePreKey), MSavePreKey.ToString()))
+                new XElement(nameof(MSavePreKey), MSavePreKey.ToString()),
+                new XElement(nameof(AddSheetKey), AddSheetKey.ToString()),
+                new XElement(nameof(AddSheetPreKey), AddSheetPreKey.ToString()))
                 );
             XDocument xml = new XDocument(new XDeclaration("1.0", "utf-8", "true"), tmpel);
             xml.Save(AppDomain.CurrentDomain.BaseDirectory + SettingFile);
@@ -822,6 +864,8 @@ namespace CaptureTool
             EnableWorkBookAutoSave = true;
             MSaveKey = Keys.S;
             MSavePreKey = Keys.Alt;
+            AddSheetKey = Keys.W;
+            AddSheetPreKey = Keys.Alt;
         }
     }
 
