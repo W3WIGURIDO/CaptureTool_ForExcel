@@ -212,6 +212,7 @@ namespace CaptureTool
             {
                 if (tmpHotKey.HotKeyName == AddSheetStr)
                 {
+                    this.Activate();
                     addWorkSheetButton_Click(null, null);
                 }
             }
