@@ -38,11 +38,18 @@ namespace CaptureTool
         //private bool loadFinished = false;
         private bool isNoFileMode = false;
         private MiniWindow miniWindow;
-        public IntPtr Handle { get; }
+        public IntPtr Handle
+        {
+            get
+            {
+                return new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            }
+        }
         private static MainWindow mainWindow;
         private BridgeClosedXML closedXML;
         private Dictionary<string, ImageGridWindow> imageGridList = new Dictionary<string, ImageGridWindow>();
         private bool visibleAddSheetWindow = false;
+
 
         public static MainWindow GetMainWindow()
         {
@@ -59,7 +66,6 @@ namespace CaptureTool
             mainWindow = this;
             this.DataContext = settings;
             _ActiveWindow = this;
-            Handle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
             if (ExcelOpenWindow.ExcelFileSelect(settings))
             {
                 closedXML = new BridgeClosedXML(settings);
@@ -150,7 +156,9 @@ namespace CaptureTool
                 {
                     targetWindow = this;
                 }
-                if (tmpHotKey.HotKeyName == ScreenCapture)
+                IntPtr foregroundWindow = MainProcess.GetForegroundWindow();
+                bool deactivateFlag = foregroundWindow.Equals(Handle);
+                if (tmpHotKey.HotKeyName == ScreenCapture || deactivateFlag)
                 {
                     Task.Run(() =>
                  {
@@ -160,11 +168,12 @@ namespace CaptureTool
                      }, System.Windows.Threading.DispatcherPriority.Send);
                  });
                 }
+
                 var positionSet = (PositionSet)positionSelect.SelectedValue;
                 string imageFormatSelectStr = imageFormatSelect.SelectedValue.ToString();
                 Task.Run(() =>
                 {
-                    if (tmpHotKey.HotKeyName == ScreenCapture)
+                    if (tmpHotKey.HotKeyName == ScreenCapture || deactivateFlag)
                     {
                         System.Threading.Thread.Sleep(200);
                         while (targetWindow.Visibility == Visibility.Visible)
@@ -185,7 +194,7 @@ namespace CaptureTool
                             }
                         }
                     });
-                    if (tmpHotKey.HotKeyName == ScreenCapture)
+                    if (tmpHotKey.HotKeyName == ScreenCapture || deactivateFlag)
                     {
                         targetWindow.Dispatcher.Invoke(() =>
                         {
@@ -212,8 +221,14 @@ namespace CaptureTool
             {
                 if (tmpHotKey.HotKeyName == AddSheetStr)
                 {
+                    if (visibleAddSheetWindow)
+                    {
+                        return;
+                    }
+                    visibleAddSheetWindow = true;
                     this.Activate();
                     addWorkSheetButton_Click(null, null);
+                    visibleAddSheetWindow = false;
                 }
             }
         }
@@ -471,11 +486,6 @@ namespace CaptureTool
 
         private void addWorkSheetButton_Click(object sender, RoutedEventArgs e)
         {
-            if (visibleAddSheetWindow)
-            {
-                return;
-            }
-            visibleAddSheetWindow = true;
             bool result = false;
             string name;
             if (settings.AutoSetWorkSheetName == true)
@@ -509,7 +519,6 @@ namespace CaptureTool
                 closedXML.AddWorkSheet(name);
                 settings.WorkSheetsIndex = settings.WorkSheets.Values.ToList().IndexOf(name);
             }
-            visibleAddSheetWindow = false;
         }
 
         private void renameWorkSheetButton_Click(object sender, RoutedEventArgs e)
