@@ -53,6 +53,12 @@
     <Reference Include="ExcelNumberFormat, Version=1.1.0.0, Culture=neutral, PublicKeyToken=23c6f5d73be07eca, processorArchitecture=MSIL">
       <HintPath>..\packages\ExcelNumberFormat.1.1.0\lib\net20\ExcelNumberFormat.dll</HintPath>
     </Reference>
+    <Reference Include="Microsoft.WindowsAPICodePack, Version=1.1.2.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\WindowsAPICodePack-Core.1.1.2\lib\Microsoft.WindowsAPICodePack.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.WindowsAPICodePack.Shell, Version=1.1.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\WindowsAPICodePack-Shell.1.1.1\lib\Microsoft.WindowsAPICodePack.Shell.dll</HintPath>
+    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Data" />
     <Reference Include="System.Drawing" />
@@ -89,6 +95,12 @@
       <DependentUpon>ExcelOpenWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="Extend.cs" />
+    <Compile Include="FileOrFolderWindow.xaml.cs">
+      <DependentUpon>FileOrFolderWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="GetFolderNamesWindow.xaml.cs">
+      <DependentUpon>GetFolderNamesWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="ImageGridWindow.xaml.cs">
       <DependentUpon>ImageGridWindow.xaml</DependentUpon>
     </Compile>
@@ -125,6 +137,14 @@
     <Page Include="ExcelOpenWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
+    </Page>
+    <Page Include="FileOrFolderWindow.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="GetFolderNamesWindow.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="ImageGridWindow.xaml">
       <SubType>Designer</SubType>

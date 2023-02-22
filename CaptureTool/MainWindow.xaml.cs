@@ -876,5 +876,76 @@ namespace CaptureTool
                 return false;
             }
         }
+
+        private void addImageListButton_Click(object sender, RoutedEventArgs e)
+        {
+            FileOrFolderWindow fileOrFolderWindow = new FileOrFolderWindow(settings, closedXML) { Owner = this };
+            fileOrFolderWindow.ShowDialog();
+        }
+
+        private void batchButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (closedXML.ModFlag)
+            {
+                bool dResult = ShowNonSaveMessage();
+                if (!dResult)
+                {
+                    return;
+                }
+            }
+
+            string names = new GetFolderNamesWindow() { Owner = this }.ShowDialog();
+            if (string.IsNullOrEmpty(names))
+            {
+                return;
+            }
+
+            string[] nameArray = names.Split(new string[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries).Select(dir =>
+            {
+                if (dir.StartsWith("\"") && dir.EndsWith("\""))
+                {
+                    return dir.Replace("\"", "");
+                }
+                return dir;
+            }).ToArray();
+            bool lastResult = true;
+            int lastCount = 0;
+            int folderCount = 0;
+            foreach (string dir in nameArray)
+            {
+                if (System.IO.Directory.Exists(dir))
+                {
+                    string fileNametmp = System.IO.Path.GetFileName(dir);
+                    settings.FileName = System.IO.Path.Combine(dir, fileNametmp + ".xlsx");
+                    lastResult = closedXML.CreateNewBook();
+                    if (lastResult)
+                    {
+                        lastCount = closedXML.AddImageFromFolder(dir);
+                        if (lastCount > 0)
+                        {
+                            closedXML.SaveAsNowBook();
+                            folderCount++;
+                        }
+                        else
+                        {
+                            closedXML.UnloadWorkBook();
+                            System.IO.File.Delete(settings.FileName);
+                            lastResult = false;
+                        }
+                    }
+                }
+            }
+
+            var dialogResult = WpfFolderBrowser.CustomMessageBox.Show(this, string.Format("一括処理が完了しました。\r\n指定フォルダ数：{0}\r\n処理済みフォルダ数：{1}", nameArray.Length, folderCount), "確認", MessageBoxButton.OK, MessageBoxImage.Information, MessageBoxResult.OK, MessageBoxOptions.None);
+
+            if (ExcelOpenWindow.ExcelFileSelect(settings))
+            {
+                closedXML = new BridgeClosedXML(settings);
+            }
+            else
+            {
+                Environment.Exit(0);
+            }
+        }
     }
 }

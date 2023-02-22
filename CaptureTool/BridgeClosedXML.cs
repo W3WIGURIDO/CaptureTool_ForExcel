@@ -332,5 +332,41 @@ namespace CaptureTool
             workbook.Save();
             ModFlag = false;
         }
+
+
+        public int AddImageFromFolder(string dirName)
+        {                // FileNameで選択されたフォルダを取得する
+            int count = 0;
+            if (Directory.Exists(dirName))
+            {
+                IEnumerable<string> files = Directory.EnumerateFiles(dirName).Where(s =>
+                    s.EndsWith(".jpg", StringComparison.CurrentCultureIgnoreCase) ||
+                    s.EndsWith(".jpeg", StringComparison.CurrentCultureIgnoreCase) ||
+                    s.EndsWith(".png", StringComparison.CurrentCultureIgnoreCase) ||
+                    s.EndsWith(".bmp", StringComparison.CurrentCultureIgnoreCase) ||
+                    s.EndsWith(".gif", StringComparison.CurrentCultureIgnoreCase)
+                ).OrderBy(d => d);
+
+                foreach (string str in files)
+                {
+                    try
+                    {
+                        Bitmap image = new Bitmap(str);
+                        AddImage(image);
+                        count++;
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine(ex.StackTrace);
+                    }
+                }
+            }
+            return count;
+        }
+
+        public void UnloadWorkBook()
+        {
+            workbook.Dispose();
+        }
     }
 }
