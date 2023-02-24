@@ -5,10 +5,10 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:CaptureTool"
         mc:Ignorable="d"
-        Title="選択" SizeToContent="WidthAndHeight" WindowStyle="None">
+        Title="選択" SizeToContent="WidthAndHeight" WindowStyle="None" Loaded="Window_Loaded">
     <StackPanel Orientation="Horizontal" Margin="5">
         <Button x:Name="fileSelectButton" Content="ファイルを選択" Click="fileSelectButton_Click"/>
         <Button x:Name="folderSelectButton" Content="フォルダを選択" Margin="5,0" Click="folderSelectButton_Click"/>
-        <Button x:Name="calcelButton" Content="キャンセル" Click="calcelButton_Click" Loaded="calcelButton_Loaded"/>
+        <Button x:Name="calcelButton" Content="キャンセル" Click="calcelButton_Click"/>
     </StackPanel>
 </Window>

@@ -26,6 +26,7 @@ namespace CaptureTool
     {
         private Settings settings;
         private BridgeClosedXML closedXML;
+        private bool imageReaded = false;
         public FileOrFolderWindow(Settings settings, BridgeClosedXML bridgeClosedXML)
         {
             InitializeComponent();
@@ -43,9 +44,9 @@ namespace CaptureTool
             };
             if (ofd.ShowDialog() == true)
             {
-                Bitmap bitmap = new Bitmap(ofd.FileName);
-                closedXML.AddImage(bitmap);
+                closedXML.AddImageFromFile(ofd.FileName);
             }
+            imageReaded = true;
             Close();
         }
 
@@ -65,6 +66,7 @@ namespace CaptureTool
                 }
 
                 closedXML.AddImageFromFolder(cofd.FileName);
+                imageReaded = true;
                 Close();
             }
         }
@@ -74,13 +76,19 @@ namespace CaptureTool
             Close();
         }
 
-        private void calcelButton_Loaded(object sender, RoutedEventArgs e)
+        private void Window_Loaded(object sender, RoutedEventArgs e)
         {
             if (Owner != null)
             {
                 Left = Owner.Left + Owner.Width / 2 - Width / 2;
                 Top = Owner.Top + Owner.Height / 2 - Height / 2;
             }
+        }
+
+        public new bool ShowDialog()
+        {
+            base.ShowDialog();
+            return imageReaded;
         }
     }
 }

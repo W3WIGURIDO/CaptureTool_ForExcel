@@ -764,7 +764,7 @@ namespace CaptureTool
                 }
             }
             string sheetName = settings.SelectedWorkSheetsValue;
-            ImageGridWindow imageGridWindow = new ImageGridWindow(ImageGridSource.GetSourceFromMemoryStream(closedXML.GetImageList(), true)) { Title = string.Format("シート：[{0}]の削除する画像を選択", settings.SelectedWorkSheetsValue) };
+            ImageGridWindow imageGridWindow = new ImageGridWindow(ImageGridSource.GetSourceFromMemoryStream(closedXML.GetImageList(), true)) { Title = string.Format("シート：[{0}]の削除する画像を選択(※注意　削除後、シートは自動保存されます)", settings.SelectedWorkSheetsValue) };
             if (imageGridWindow.ShowDialog(out bool[] chResult) && chResult.Contains(true))
             {
                 closedXML.ReplaceDeletedImagesSheet(chResult);
@@ -880,7 +880,14 @@ namespace CaptureTool
         private void addImageListButton_Click(object sender, RoutedEventArgs e)
         {
             FileOrFolderWindow fileOrFolderWindow = new FileOrFolderWindow(settings, closedXML) { Owner = this };
-            fileOrFolderWindow.ShowDialog();
+            bool imageReaded = fileOrFolderWindow.ShowDialog();
+            if (imageReaded)
+            {
+                if (settings.EnableImageGridSourceAutoUpdate == true)
+                {
+                    UpdateViewImageWindowSource();
+                }
+            }
         }
 
         private void batchButton_Click(object sender, RoutedEventArgs e)

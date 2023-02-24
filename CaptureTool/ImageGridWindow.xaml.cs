@@ -73,6 +73,12 @@ namespace CaptureTool
             isOK = true;
             Close();
         }
+
+        private void cancelButton_Click(object sender, RoutedEventArgs e)
+        {
+            isOK = false;
+            Close();
+        }
     }
     public class Photo : INotifyPropertyChanged
     {

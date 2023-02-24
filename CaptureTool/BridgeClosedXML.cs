@@ -364,6 +364,19 @@ namespace CaptureTool
             return count;
         }
 
+        public void AddImageFromFile(string fileName)
+        {
+            try
+            {
+                Bitmap bitmap = new Bitmap(fileName);
+                AddImage(bitmap);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine(ex.StackTrace);
+            }
+        }
+
         public void UnloadWorkBook()
         {
             workbook.Dispose();
