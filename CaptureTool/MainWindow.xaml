@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:CaptureTool"
         mc:Ignorable="d"
-        Title="CaptureTool For Excel" Height="560" Width="620" Closing="Window_Closing" Loaded="Window_Loaded" StateChanged="Window_StateChanged" IsVisibleChanged="Window_IsVisibleChanged">
+        Title="CaptureTool For Excel" Height="700" Width="780" MinHeight="520" MinWidth="680" Closing="Window_Closing" Loaded="Window_Loaded" StateChanged="Window_StateChanged" IsVisibleChanged="Window_IsVisibleChanged">
     <Grid Margin="5">
         <Grid.RowDefinitions>
             <RowDefinition/>
@@ -136,6 +136,18 @@
                 <Button x:Name="copyWorkSheetButton" Content="コピー" Grid.Column="6" ToolTip="シートをコピーする" Margin="2,0,0,0" Click="copyWorkSheetButton_Click"/>
             </WrapPanel>
             <WrapPanel Margin="0,5,0,0" VerticalAlignment="Center">
+                <TextBlock Text="次回挿入行の管理方式" VerticalAlignment="Center"/>
+                <ComboBox x:Name="rowManagementModeSelect" Width="185" Margin="6,0,12,0"
+                          ItemsSource="{Binding RowManagementModes}" DisplayMemberPath="Value"
+                          SelectedIndex="{Binding RowManagementModeIndex, Mode=OneWay}"
+                          SelectionChanged="RowManagementModeSelect_SelectionChanged"/>
+                <CheckBox Content="画像位置計算をキャッシュ" VerticalAlignment="Center"
+                          IsChecked="{Binding EnableRowPositionCache}"
+                          IsEnabled="{Binding IsPicturePositionMode}"
+                          Checked="RowPositionCache_Changed" Unchecked="RowPositionCache_Changed"
+                          ToolTip="各シートの初回選択で計算し、再選択時は計算結果を再利用"/>
+            </WrapPanel>
+            <WrapPanel Margin="0,5,0,0" VerticalAlignment="Center">
                 <TextBlock Text="最初の画像の開始行" VerticalAlignment="Center"/>
                 <TextBox x:Name="startRowTextBox" Text="{Binding StartRow, Mode=OneWay}"
                          Width="65" Margin="5,0,12,0" ToolTip="1～1048576の整数。既存の画像の位置は変更しません。"/>
@@ -147,7 +159,10 @@
             </WrapPanel>
             <WrapPanel Margin="0,5,0,0">
                 <TextBlock Text="画像 次回挿入行（選択シート）"/>
-                <TextBox Grid.Column="1" Text="{Binding Row}" Margin="0,0,5,0" Width="45"/>
+                <TextBox x:Name="nextInsertRowTextBox" Grid.Column="1"
+                         Text="{Binding Row, Mode=OneWay}" LostFocus="NextInsertRowTextBox_LostFocus"
+                         PreviewKeyDown="NextInsertRowTextBox_PreviewKeyDown"
+                         Margin="0,0,5,0" Width="75" ToolTip="次に成功する画像挿入1回だけに適用"/>
                 <Button x:Name="viewImageListButton" Content="一覧" Grid.Column="2" Click="viewImageListButton_Click"/>
                 <Button x:Name="addImageListButton" Content="追加" Grid.Column="3" Margin="2,0,0,0" Click="addImageListButton_Click"/>
                 <Button x:Name="deleteImageListButton" Content="削除" Grid.Column="4" Click="deleteImageListButton_Click" Margin="2,0,0,0"/>

@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Reflection;
 using System.Windows;
 
 namespace CaptureTool
@@ -16,6 +17,10 @@ namespace CaptureTool
         private Settings settings;
         private XLWorkbook workbook;
         private IXLWorksheet worksheet;
+        private const int MaxRow = 1048576;
+        // シートオブジェクトの存続期間中だけ利用。名前や表示順はキーにしない。
+        private readonly Dictionary<IXLWorksheet, int> bottomRowCache = new Dictionary<IXLWorksheet, int>();
+        private readonly Dictionary<IXLWorksheet, int> oneShotRows = new Dictionary<IXLWorksheet, int>();
         public bool ModFlag { get; set; } = false;
         public bool AutoSave { get; set; } = true;
 
@@ -31,6 +36,8 @@ namespace CaptureTool
             {
                 try
                 {
+                    bottomRowCache.Clear();
+                    oneShotRows.Clear();
                     workbook = new XLWorkbook(settings.FileName);
                     worksheet = workbook.Worksheet(1);
                     LoadWorkSheet(worksheet);
@@ -58,67 +65,190 @@ namespace CaptureTool
             AutoSaveOrModFlagUpdate();
         }
 
-        public void AddImage(MemoryStream ms, int height)
+        // 画像が占める最後の行。ピクセルと各行の実際の高さを比較する。
+        private int GetBottomRowForHeight(IXLWorksheet ws, int startRow, double pixelHeight)
         {
-            // 行高はシート内で異なる可能性があるので、実際の行高を合計する。
-            // 画像を置く前に次回挿入位置まで検証し、範囲外の画像は追加しない。
-            const int maxRow = 1048576;
-            int startRow = settings.Row;
-            if (startRow < 1 || startRow > maxRow || height <= 0)
-                throw new InvalidOperationException("画像の挿入行または画像サイズが不正です。");
-
-            double coveredPixels = 0;
+            if (startRow < 1 || startRow > MaxRow || pixelHeight <= 0)
+                throw new InvalidOperationException("画像の位置または高さが不正です。");
+            double covered = 0;
             int row = startRow;
-            while (row <= maxRow && coveredPixels < height)
+            while (row <= MaxRow && covered + 0.000001 < pixelHeight)
             {
-                coveredPixels += worksheet.Row(row).Height / 0.75; // Excelのptをpxへ
+                covered += ws.Row(row).Height / 0.75;
                 row++;
             }
+            if (covered + 0.000001 < pixelHeight)
+                throw new InvalidOperationException("画像がExcelの最大行数を超えます。");
+            return row - 1;
+        }
 
-            long nextRow = (long)row + settings.ImageGapRows;
-            if (coveredPixels < height || nextRow > maxRow)
+        private static object ReadProperty(object target, string name)
+        {
+            return target?.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.Instance)?.GetValue(target);
+        }
+
+        private static IXLCell PictureTopLeftCell(ClosedXML.Excel.Drawings.IXLPicture picture, out double offsetY)
+        {
+            object marker = ReadProperty(picture, "TopLeftMarker");
+            object offset = ReadProperty(marker, "Offset");
+            object y = ReadProperty(offset, "Y") ?? ReadProperty(marker, "OffsetY");
+            offsetY = y == null ? 0 : Convert.ToDouble(y);
+            // ClosedXMLのバージョンによる公開プロパティ名の差を吸収。
+            return ReadProperty(picture, "TopLeftCell") as IXLCell ??
+                   ReadProperty(marker, "Cell") as IXLCell;
+        }
+
+        private int CalculateBottomRow(IXLWorksheet ws)
+        {
+            int bottom = 0;
+            foreach (var picture in ws.Pictures)
+            {
+                double offsetY;
+                IXLCell topLeft = PictureTopLeftCell(picture, out offsetY);
+                if (topLeft == null)
+                    throw new InvalidOperationException("画像の配置セルを取得できません。画像位置を計算できるClosedXMLのAPIを確認してください。");
+                object displayHeight = ReadProperty(picture, "Height");
+                double height = displayHeight == null ? picture.OriginalHeight : Convert.ToDouble(displayHeight);
+                int imageBottom = GetBottomRowForHeight(ws, topLeft.Address.RowNumber,
+                    height + Math.Max(0, offsetY));
+                bottom = Math.Max(bottom, imageBottom);
+            }
+            return bottom;
+        }
+
+        private int GetBottomRow(IXLWorksheet ws)
+        {
+            if (bottomRowCache.TryGetValue(ws, out int cached))
+                return cached;
+            int bottom = CalculateBottomRow(ws);
+            bottomRowCache[ws] = bottom;
+            return bottom;
+        }
+
+        private int GetComputedNextRow(IXLWorksheet ws)
+        {
+            int bottom = GetBottomRow(ws);
+            long next = bottom == 0 ? settings.StartRow : (long)bottom + 1 + settings.ImageGapRows;
+            if (next < 1 || next > MaxRow)
+                throw new InvalidOperationException("次回挿入行がExcelの最大行数を超えます。");
+            return (int)next;
+        }
+
+        // 手入力はシート別に保持し、次の成功した画像挿入で消費する。
+        public void SetOneShotRow(int row)
+        {
+            if (row < 1 || row > MaxRow)
+                throw new ArgumentOutOfRangeException(nameof(row));
+            oneShotRows[worksheet] = row;
+            settings.Row = row;
+        }
+
+        public void AddImage(MemoryStream ms, int height)
+        {
+            int startRow = oneShotRows.TryGetValue(worksheet, out int enteredRow)
+                ? enteredRow : settings.Row;
+            int imageBottom = GetBottomRowForHeight(worksheet, startRow, height);
+            int existingBottom = settings.IsPicturePositionMode ? GetBottomRow(worksheet) : 0;
+            long next = settings.IsPicturePositionMode
+                ? (long)Math.Max(existingBottom, imageBottom) + 1 + settings.ImageGapRows
+                : (long)imageBottom + 1 + settings.ImageGapRows;
+            if (next > MaxRow)
                 throw new InvalidOperationException("画像または行間隔がExcelの最大行数を超えます。");
 
             ms.Position = 0;
-            ClosedXML.Excel.Drawings.IXLPicture insertedPic = worksheet.AddPicture(ms);
+            var insertedPic = worksheet.AddPicture(ms);
             insertedPic.MoveTo(worksheet.Cell(startRow, 1));
-            settings.Row = (int)nextRow;
-            worksheet.Cell(1, 1).Value = settings.Row;
+            // 挿入に成功するまで、手入力の一回限り指定は消費しない。
+            oneShotRows.Remove(worksheet);
+            bottomRowCache[worksheet] = Math.Max(existingBottom, imageBottom);
+            settings.Row = (int)next;
+            if (!settings.IsPicturePositionMode)
+                worksheet.Cell(1, 1).Value = settings.Row;
         }
 
-        // 開いているシートがまだ空で、挿入位置を個別に変更していない場合だけ反映。
         public void ApplyStartRowToEmptySheet(int previousStartRow)
         {
             if (worksheet != null && worksheet.Pictures.Count == 0 &&
+                !oneShotRows.ContainsKey(worksheet) &&
                 (settings.Row == previousStartRow || settings.Row == 1) &&
                 settings.Row != settings.StartRow)
             {
                 settings.Row = settings.StartRow;
-                worksheet.Cell(1, 1).Value = settings.Row;
+                if (!settings.IsPicturePositionMode)
+                {
+                    worksheet.Cell(1, 1).Value = settings.Row;
+                    AutoSaveOrModFlagUpdate();
+                }
                 worksheet.Cell(settings.Row, 1).Select();
-                AutoSaveOrModFlagUpdate();
             }
         }
 
+        // 新方式へ切り替える場合はA1の値を参照しない。旧方式への切替時は
+        // 古いA1を信用せず、全シートの実際の画像位置から同期する。
+        public bool SwitchRowManagementMode(int mode)
+        {
+            if (mode == settings.RowManagementModeIndex)
+                return true;
+            bottomRowCache.Clear();
+            if (mode == 1)
+            {
+                var values = new List<KeyValuePair<IXLWorksheet, int>>();
+                var conflicts = new List<string>();
+                foreach (var sheet in workbook.Worksheets)
+                {
+                    int next = GetComputedNextRow(sheet);
+                    values.Add(new KeyValuePair<IXLWorksheet, int>(sheet, next));
+                    string existing = sheet.Cell(1, 1).GetValue<string>();
+                    if (!string.IsNullOrWhiteSpace(existing))
+                        conflicts.Add(sheet.Name);
+                }
+                if (conflicts.Count > 0)
+                {
+                    string names = string.Join(", ", conflicts.Take(5));
+                    var answer = MessageBox.Show(MainWindow.ActiveWindow,
+                        "A1セルの既存値を上書きして旧方式へ移行します。対象シート：" + names +
+                        (conflicts.Count > 5 ? " ほか" : "") + "\n実行しますか？",
+                        "A1セルの上書き確認", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                    if (answer != MessageBoxResult.Yes) return false;
+                }
+                foreach (var value in values)
+                    value.Key.Cell(1, 1).Value = value.Value;
+                AutoSaveOrModFlagUpdate();
+            }
+            settings.RowManagementModeIndex = mode;
+            oneShotRows.Clear();
+            LoadWorkSheet(worksheet);
+            return true;
+        }
+
+        public void RefreshCurrentRow()
+        {
+            bottomRowCache.Clear();
+            LoadWorkSheet(worksheet);
+        }
+
+        public int CurrentWorksheetPosition => worksheet == null ? 0 : worksheet.Position;
+
         public void ChangeSelectionWorkSheet(int position)
         {
-            worksheet = workbook.Worksheet(position);
+            var nextSheet = workbook.Worksheet(position);
+            if (!settings.EnableRowPositionCache)
+                bottomRowCache.Remove(nextSheet);
+            worksheet = nextSheet;
             LoadWorkSheet(worksheet);
         }
 
         private void LoadWorkSheet(IXLWorksheet ws)
         {
-            // A1には従来からシートごとの次回挿入行が保存されている。
-            if (int.TryParse(ws.Cell(1, 1).GetValue<string>(), out int savedRowCount) &&
-                savedRowCount >= 1 && savedRowCount <= 1048576)
-            {
-                settings.Row = savedRowCount == 1 && ws.Pictures.Count == 0
-                    ? settings.StartRow : savedRowCount;
-            }
+            if (settings.IsPicturePositionMode)
+                settings.Row = GetComputedNextRow(ws);
+            else if (int.TryParse(ws.Cell(1, 1).GetValue<string>(), out int savedRow) &&
+                     savedRow >= 1 && savedRow <= MaxRow)
+                settings.Row = savedRow;
             else
-            {
                 settings.Row = settings.StartRow;
-            }
+            if (oneShotRows.TryGetValue(ws, out int pending))
+                settings.Row = pending;
             ws.Cell(settings.Row, 1).Select();
         }
 
@@ -168,6 +298,8 @@ namespace CaptureTool
             {
                 try
                 {
+                    bottomRowCache.Clear();
+                    oneShotRows.Clear();
                     workbook = new XLWorkbook(settings.FileName);
                     worksheet = workbook.Worksheet(1);
                     LoadWorkSheet(worksheet);
@@ -187,6 +319,8 @@ namespace CaptureTool
         {
             try
             {
+                bottomRowCache.Clear();
+                oneShotRows.Clear();
                 workbook = new XLWorkbook();
                 worksheet = workbook.Worksheets.Add("エビデンス");
                 workbook.SaveAs(settings.FileName);
@@ -216,6 +350,8 @@ namespace CaptureTool
         {
             try
             {
+                bottomRowCache.Remove(worksheet);
+                oneShotRows.Remove(worksheet);
                 workbook.Worksheets.Delete(worksheet.Position);
                 SetWorkSheetsDictionary();
                 AutoSaveOrModFlagUpdate();
@@ -259,6 +395,8 @@ namespace CaptureTool
                     break;
                 }
             }
+            bottomRowCache.Remove(prevSheet);
+            oneShotRows.Remove(prevSheet);
             worksheet = workbook.AddWorksheet(prevName, prevPosition + 1);
             settings.Row = settings.StartRow;
             addList.Select(al =>
@@ -297,6 +435,9 @@ namespace CaptureTool
                       }
                       return false;
                   }).ToArray();
+                bottomRowCache.Remove(worksheet);
+                if (settings.IsPicturePositionMode)
+                    LoadWorkSheet(worksheet);
                 AutoSaveOrModFlagUpdate();
                 return dlResult;
             }

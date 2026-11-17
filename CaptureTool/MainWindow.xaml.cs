@@ -150,6 +150,8 @@ namespace CaptureTool
 
         private void HotKey_HotKeyPush(object sender, EventArgs e)
         {
+            if (!TryCommitNextInsertRow(true))
+                return;
             if (sender is HotKey tmpHotKey)
             {
                 Window targetWindow;
@@ -325,6 +327,67 @@ namespace CaptureTool
             }
         }
 
+        private bool TryCommitNextInsertRow(bool showError)
+        {
+            if (nextInsertRowTextBox.Text == settings.Row.ToString())
+                return true;
+            if (!int.TryParse(nextInsertRowTextBox.Text, out int row) ||
+                row < 1 || row > 1048576)
+            {
+                if (showError)
+                {
+                    MessageBox.Show(this, "次回挿入行は1～1048576の整数で指定してください。",
+                        "入力エラー", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    nextInsertRowTextBox.Focus();
+                    nextInsertRowTextBox.SelectAll();
+                }
+                return false;
+            }
+            if (closedXML == null) return false;
+            closedXML.SetOneShotRow(row);
+            return true;
+        }
+
+        private void NextInsertRowTextBox_LostFocus(object sender, RoutedEventArgs e)
+        {
+            // 入力途中の値は保持し、挿入開始時にも検証する。
+            TryCommitNextInsertRow(false);
+        }
+
+        private void NextInsertRowTextBox_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter)
+            {
+                if (TryCommitNextInsertRow(true)) saveButton.Focus();
+                e.Handled = true;
+            }
+        }
+
+        private void RowManagementModeSelect_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (closedXML == null || rowManagementModeSelect.SelectedIndex < 0)
+                return;
+            int previousMode = settings.RowManagementModeIndex;
+            int requestedMode = rowManagementModeSelect.SelectedIndex;
+            if (requestedMode == previousMode) return;
+            try
+            {
+                if (!closedXML.SwitchRowManagementMode(requestedMode))
+                    rowManagementModeSelect.SelectedIndex = previousMode;
+            }
+            catch (Exception ex)
+            {
+                rowManagementModeSelect.SelectedIndex = previousMode;
+                MessageBox.Show(this, ex.Message, "切替エラー", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void RowPositionCache_Changed(object sender, RoutedEventArgs e)
+        {
+            if (closedXML != null && settings.IsPicturePositionMode)
+                closedXML.RefreshCurrentRow();
+        }
+
         private bool TryApplyImageLayout()
         {
             if (!int.TryParse(startRowTextBox.Text, out int startRow) ||
@@ -347,9 +410,15 @@ namespace CaptureTool
             }
 
             int previousStartRow = settings.StartRow;
+            bool changed = startRow != settings.StartRow || gapRows != settings.ImageGapRows;
             settings.StartRow = startRow;
             settings.ImageGapRows = gapRows;
-            closedXML.ApplyStartRowToEmptySheet(previousStartRow);
+            if (changed)
+            {
+                closedXML.ApplyStartRowToEmptySheet(previousStartRow);
+                if (settings.IsPicturePositionMode)
+                    closedXML.RefreshCurrentRow();
+            }
             return true;
         }
 
@@ -376,8 +445,11 @@ namespace CaptureTool
             if (WpfFolderBrowser.CustomMessageBox.Show(this, "設定をリセットします", "確認", MessageBoxButton.OKCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel, MessageBoxOptions.None) == MessageBoxResult.OK)
             {
                 int previousStartRow = settings.StartRow;
+                if (settings.RowManagementModeIndex == 1)
+                    closedXML.SwitchRowManagementMode(0);
                 settings.ResetSettings();
                 closedXML.ApplyStartRowToEmptySheet(previousStartRow);
+                closedXML.RefreshCurrentRow();
             }
         }
 
@@ -611,11 +683,34 @@ namespace CaptureTool
             }
         }
 
+        private bool revertingWorksheetSelection;
         private void WorkSheetSelect_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (sender is ComboBox combo && combo.SelectedValue is int position)
+            if (revertingWorksheetSelection || closedXML == null)
+                return;
+            if (sender is ComboBox combo && combo.SelectedValue is int position &&
+                position != closedXML.CurrentWorksheetPosition)
             {
-                closedXML.ChangeSelectionWorkSheet(position);
+                int previousPosition = closedXML.CurrentWorksheetPosition;
+                if (!TryCommitNextInsertRow(true))
+                {
+                    revertingWorksheetSelection = true;
+                    combo.SelectedValue = previousPosition;
+                    revertingWorksheetSelection = false;
+                    return;
+                }
+                try
+                {
+                    closedXML.ChangeSelectionWorkSheet(position);
+                }
+                catch (Exception ex)
+                {
+                    revertingWorksheetSelection = true;
+                    combo.SelectedValue = previousPosition;
+                    revertingWorksheetSelection = false;
+                    MessageBox.Show(this, ex.Message, "シート切替エラー",
+                        MessageBoxButton.OK, MessageBoxImage.Error);
+                }
             }
         }
 
@@ -921,6 +1016,7 @@ namespace CaptureTool
 
         private void addImageListButton_Click(object sender, RoutedEventArgs e)
         {
+            if (!TryCommitNextInsertRow(true)) return;
             FileOrFolderWindow fileOrFolderWindow = new FileOrFolderWindow(settings, closedXML) { Owner = this };
             bool imageReaded = fileOrFolderWindow.ShowDialog();
             if (imageReaded)

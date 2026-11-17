@@ -337,6 +337,32 @@ namespace CaptureTool
             }
         }
 
+        // 0=画像位置から算出（既定）、1=A1セルを使う従来方式
+        private int _RowManagementModeIndex;
+        public int RowManagementModeIndex
+        {
+            get => _RowManagementModeIndex;
+            set
+            {
+                if (value < 0 || value > 1) throw new ArgumentOutOfRangeException(nameof(RowManagementModeIndex));
+                _RowManagementModeIndex = value;
+                RaisePropertyChanged();
+                RaisePropertyChanged(nameof(IsPicturePositionMode));
+            }
+        }
+
+        public bool IsPicturePositionMode => RowManagementModeIndex == 0;
+        private readonly Dictionary<int, string> _RowManagementModes =
+            new Dictionary<int, string> { { 0, "画像位置から計算（推奨）" }, { 1, "A1セルを使用（旧方式）" } };
+        public Dictionary<int, string> RowManagementModes => _RowManagementModes;
+
+        private bool _EnableRowPositionCache;
+        public bool EnableRowPositionCache
+        {
+            get => _EnableRowPositionCache;
+            set { _EnableRowPositionCache = value; RaisePropertyChanged(); }
+        }
+
         private int _Row;
         public int Row
         {
@@ -754,6 +780,8 @@ namespace CaptureTool
                 StartRow = startRow >= 1 && startRow <= 1048576 ? startRow : 1;
                 int gapRows = GetIntFromString(nameof(ImageGapRows), 1);
                 ImageGapRows = gapRows >= 0 && gapRows <= 1048575 ? gapRows : 1;
+                int rowMode = GetIntFromString(nameof(RowManagementModeIndex), 0);
+                RowManagementModeIndex = rowMode == 1 ? 1 : 0;
 
                 bool GetBoolFromString(string name, bool defaultBool)
                 {
@@ -777,6 +805,7 @@ namespace CaptureTool
                 AutoSetWorkSheetName = GetBoolFromString(nameof(AutoSetWorkSheetName), false);
                 EnableImageGridSourceAutoUpdate = GetBoolFromString(nameof(EnableImageGridSourceAutoUpdate), false);
                 EnableWorkBookAutoSave = GetBoolFromString(nameof(EnableWorkBookAutoSave), true);
+                EnableRowPositionCache = GetBoolFromString(nameof(EnableRowPositionCache), false);
             }
             else
             {
@@ -821,6 +850,8 @@ namespace CaptureTool
                 new XElement(nameof(NumberCount), NumberCount.ToString()),
                 new XElement(nameof(StartRow), StartRow.ToString()),
                 new XElement(nameof(ImageGapRows), ImageGapRows.ToString()),
+                new XElement(nameof(RowManagementModeIndex), RowManagementModeIndex.ToString()),
+                new XElement(nameof(EnableRowPositionCache), EnableRowPositionCache.ToString()),
                 new XElement(nameof(SaveFormatIndex), SaveFormatIndex.ToString()),
                 new XElement(nameof(EnableTray), EnableTray.ToString()),
                 new XElement(nameof(OverlayTime), OverlayTime),
@@ -882,6 +913,8 @@ namespace CaptureTool
         {
             StartRow = 1;
             ImageGapRows = 1;
+            RowManagementModeIndex = 0;
+            EnableRowPositionCache = false;
             Key = Keys.Q;
             PreKey = Keys.Control;
             EnableTray = true;
