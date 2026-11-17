@@ -14,7 +14,6 @@ namespace CaptureTool
     public class BridgeClosedXML
     {
         private Settings settings;
-        private double cellHeight;
         private XLWorkbook workbook;
         private IXLWorksheet worksheet;
         public bool ModFlag { get; set; } = false;
@@ -61,11 +60,44 @@ namespace CaptureTool
 
         public void AddImage(MemoryStream ms, int height)
         {
+            // 行高はシート内で異なる可能性があるので、実際の行高を合計する。
+            // 画像を置く前に次回挿入位置まで検証し、範囲外の画像は追加しない。
+            const int maxRow = 1048576;
+            int startRow = settings.Row;
+            if (startRow < 1 || startRow > maxRow || height <= 0)
+                throw new InvalidOperationException("画像の挿入行または画像サイズが不正です。");
+
+            double coveredPixels = 0;
+            int row = startRow;
+            while (row <= maxRow && coveredPixels < height)
+            {
+                coveredPixels += worksheet.Row(row).Height / 0.75; // Excelのptをpxへ
+                row++;
+            }
+
+            long nextRow = (long)row + settings.ImageGapRows;
+            if (coveredPixels < height || nextRow > maxRow)
+                throw new InvalidOperationException("画像または行間隔がExcelの最大行数を超えます。");
+
+            ms.Position = 0;
             ClosedXML.Excel.Drawings.IXLPicture insertedPic = worksheet.AddPicture(ms);
-            insertedPic.MoveTo(worksheet.Cell(settings.Row, 1));
-            int bmToCell = (int)(height / cellHeight);
-            settings.Row += bmToCell + 1;
+            insertedPic.MoveTo(worksheet.Cell(startRow, 1));
+            settings.Row = (int)nextRow;
             worksheet.Cell(1, 1).Value = settings.Row;
+        }
+
+        // 開いているシートがまだ空で、挿入位置を個別に変更していない場合だけ反映。
+        public void ApplyStartRowToEmptySheet(int previousStartRow)
+        {
+            if (worksheet != null && worksheet.Pictures.Count == 0 &&
+                (settings.Row == previousStartRow || settings.Row == 1) &&
+                settings.Row != settings.StartRow)
+            {
+                settings.Row = settings.StartRow;
+                worksheet.Cell(1, 1).Value = settings.Row;
+                worksheet.Cell(settings.Row, 1).Select();
+                AutoSaveOrModFlagUpdate();
+            }
         }
 
         public void ChangeSelectionWorkSheet(int position)
@@ -76,16 +108,17 @@ namespace CaptureTool
 
         private void LoadWorkSheet(IXLWorksheet ws)
         {
-            cellHeight = ws.Row(1).Height / 0.75;
-            if (int.TryParse(ws.Cell(1, 1).GetValue<string>(), out int savedRowCount))
+            // A1には従来からシートごとの次回挿入行が保存されている。
+            if (int.TryParse(ws.Cell(1, 1).GetValue<string>(), out int savedRowCount) &&
+                savedRowCount >= 1 && savedRowCount <= 1048576)
             {
-                settings.Row = savedRowCount;
+                settings.Row = savedRowCount == 1 && ws.Pictures.Count == 0
+                    ? settings.StartRow : savedRowCount;
             }
             else
             {
-                settings.Row = 1;
+                settings.Row = settings.StartRow;
             }
-            settings.Row = settings.Row;
             ws.Cell(settings.Row, 1).Select();
         }
 
@@ -157,8 +190,7 @@ namespace CaptureTool
                 workbook = new XLWorkbook();
                 worksheet = workbook.Worksheets.Add("エビデンス");
                 workbook.SaveAs(settings.FileName);
-                cellHeight = worksheet.Row(1).Height / 0.75;
-                settings.Row = 1;
+                settings.Row = settings.StartRow;
                 worksheet.Cell(settings.Row, 1).Select();
                 SetWorkSheetsDictionary();
                 return true;
@@ -228,7 +260,7 @@ namespace CaptureTool
                 }
             }
             worksheet = workbook.AddWorksheet(prevName, prevPosition + 1);
-            settings.Row = 1;
+            settings.Row = settings.StartRow;
             addList.Select(al =>
             {
                 AddImage(al.ImageStream, al.OriginalHeight);

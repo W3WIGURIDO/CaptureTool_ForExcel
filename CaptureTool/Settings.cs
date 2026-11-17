@@ -310,6 +310,33 @@ namespace CaptureTool
             }
         }
 
+        // 新規シートの最初の画像位置と、画像間に空ける行数。
+        private int _StartRow = 1;
+        public int StartRow
+        {
+            get => _StartRow;
+            set
+            {
+                if (value < 1 || value > 1048576)
+                    throw new ArgumentOutOfRangeException(nameof(StartRow));
+                _StartRow = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        private int _ImageGapRows = 1;
+        public int ImageGapRows
+        {
+            get => _ImageGapRows;
+            set
+            {
+                if (value < 0 || value > 1048575)
+                    throw new ArgumentOutOfRangeException(nameof(ImageGapRows));
+                _ImageGapRows = value;
+                RaisePropertyChanged();
+            }
+        }
+
         private int _Row;
         public int Row
         {
@@ -723,6 +750,10 @@ namespace CaptureTool
                 OverlayY = GetIntFromString(nameof(OverlayY), 150);
                 PixelFormatIndex = GetIntFromString(nameof(PixelFormatIndex), 0);
                 CaptureModeIndex = GetIntFromString(nameof(CaptureModeIndex), 1);
+                int startRow = GetIntFromString(nameof(StartRow), 1);
+                StartRow = startRow >= 1 && startRow <= 1048576 ? startRow : 1;
+                int gapRows = GetIntFromString(nameof(ImageGapRows), 1);
+                ImageGapRows = gapRows >= 0 && gapRows <= 1048575 ? gapRows : 1;
 
                 bool GetBoolFromString(string name, bool defaultBool)
                 {
@@ -788,6 +819,8 @@ namespace CaptureTool
                 new XElement(nameof(EnableNumber), EnableNumber.ToString()),
                 new XElement(nameof(DigitsText), DigitsText),
                 new XElement(nameof(NumberCount), NumberCount.ToString()),
+                new XElement(nameof(StartRow), StartRow.ToString()),
+                new XElement(nameof(ImageGapRows), ImageGapRows.ToString()),
                 new XElement(nameof(SaveFormatIndex), SaveFormatIndex.ToString()),
                 new XElement(nameof(EnableTray), EnableTray.ToString()),
                 new XElement(nameof(OverlayTime), OverlayTime),
@@ -847,6 +880,8 @@ namespace CaptureTool
 
         public void ResetSettings()
         {
+            StartRow = 1;
+            ImageGapRows = 1;
             Key = Keys.Q;
             PreKey = Keys.Control;
             EnableTray = true;

@@ -78,6 +78,11 @@ namespace CaptureTool
 
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
+            if (!TryApplyImageLayout())
+            {
+                e.Cancel = true;
+                return;
+            }
             if (closedXML.ModFlag)
             {
                 bool dResult = ShowNonSaveMessage();
@@ -320,8 +325,43 @@ namespace CaptureTool
             }
         }
 
+        private bool TryApplyImageLayout()
+        {
+            if (!int.TryParse(startRowTextBox.Text, out int startRow) ||
+                startRow < 1 || startRow > 1048576)
+            {
+                MessageBox.Show(this, "開始行は1～1048576の整数で指定してください。", "入力エラー",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                startRowTextBox.Focus();
+                startRowTextBox.SelectAll();
+                return false;
+            }
+            if (!int.TryParse(imageGapRowsTextBox.Text, out int gapRows) ||
+                gapRows < 0 || gapRows > 1048575)
+            {
+                MessageBox.Show(this, "画像間の空白行数は0～1048575の整数で指定してください。", "入力エラー",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                imageGapRowsTextBox.Focus();
+                imageGapRowsTextBox.SelectAll();
+                return false;
+            }
+
+            int previousStartRow = settings.StartRow;
+            settings.StartRow = startRow;
+            settings.ImageGapRows = gapRows;
+            closedXML.ApplyStartRowToEmptySheet(previousStartRow);
+            return true;
+        }
+
+        private void ApplyImageLayoutButton_Click(object sender, RoutedEventArgs e)
+        {
+            TryApplyImageLayout();
+        }
+
         private void ClickSave(object sender, RoutedEventArgs e)
         {
+            if (!TryApplyImageLayout())
+                return;
             settings.SaveSettings();
             ResetHotKey();
             OverlayDialog overlayDialog = new OverlayDialog("設定保存完了")
@@ -335,7 +375,9 @@ namespace CaptureTool
         {
             if (WpfFolderBrowser.CustomMessageBox.Show(this, "設定をリセットします", "確認", MessageBoxButton.OKCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel, MessageBoxOptions.None) == MessageBoxResult.OK)
             {
+                int previousStartRow = settings.StartRow;
                 settings.ResetSettings();
+                closedXML.ApplyStartRowToEmptySheet(previousStartRow);
             }
         }
 

@@ -12,7 +12,8 @@
             <RowDefinition Height="auto"/>
         </Grid.RowDefinitions>
         <Button x:Name="InvisibleButton" Background="Transparent" BorderBrush="Transparent" Opacity="0" GotFocus="InvisibleButton_GotFocus"/>
-        <StackPanel>
+        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel>
             <Grid>
                 <TextBlock Text="設定" FontWeight="Bold" FontSize="14"/>
                 <Button Content="設定リセット" HorizontalAlignment="Right" Click="ClickReset"/>
@@ -134,8 +135,18 @@
                 <Button x:Name="sortWorkSheetButton" Content="並び替え" Grid.Column="5" ToolTip="シートを並び変える" Margin="2,0,0,0" Click="sortWorkSheetButton_Click"/>
                 <Button x:Name="copyWorkSheetButton" Content="コピー" Grid.Column="6" ToolTip="シートをコピーする" Margin="2,0,0,0" Click="copyWorkSheetButton_Click"/>
             </WrapPanel>
+            <WrapPanel Margin="0,5,0,0" VerticalAlignment="Center">
+                <TextBlock Text="最初の画像の開始行" VerticalAlignment="Center"/>
+                <TextBox x:Name="startRowTextBox" Text="{Binding StartRow, Mode=OneWay}"
+                         Width="65" Margin="5,0,12,0" ToolTip="1～1048576の整数。既存の画像の位置は変更しません。"/>
+                <TextBlock Text="画像間の空白行数" VerticalAlignment="Center"/>
+                <TextBox x:Name="imageGapRowsTextBox" Text="{Binding ImageGapRows, Mode=OneWay}"
+                         Width="65" Margin="5,0,10,0" ToolTip="0～1048575の整数（画像と次の画像の間に空ける行数）。"/>
+                <Button Content="適用" Click="ApplyImageLayoutButton_Click"
+                        ToolTip="入力した開始行と空白行数をキャプチャ・画像追加に反映"/>
+            </WrapPanel>
             <WrapPanel Margin="0,5,0,0">
-                <TextBlock Text="画像 挿入行"/>
+                <TextBlock Text="画像 次回挿入行（選択シート）"/>
                 <TextBox Grid.Column="1" Text="{Binding Row}" Margin="0,0,5,0" Width="45"/>
                 <Button x:Name="viewImageListButton" Content="一覧" Grid.Column="2" Click="viewImageListButton_Click"/>
                 <Button x:Name="addImageListButton" Content="追加" Grid.Column="3" Margin="2,0,0,0" Click="addImageListButton_Click"/>
@@ -263,7 +274,8 @@
                 <TextBlock Text="自動保存"/>
                 <CheckBox x:Name="EnableWorkBookAutoSaveCheckBox" IsChecked="{Binding EnableWorkBookAutoSave}" VerticalAlignment="Center" Margin="0,0,5,0" Checked="EnableWorkBookAutoSaveCheckBox_Checked" Unchecked="EnableWorkBookAutoSaveCheckBox_Checked" ToolTip="ワークブックの自動保存を行うかどうか"/>
             </WrapPanel>
-        </StackPanel>
+          </StackPanel>
+        </ScrollViewer>
         <Grid Grid.Row="1">
             <Button x:Name="saveButton" Content="設定保存" Click="ClickSave"/>
         </Grid>
