@@ -377,9 +377,22 @@ namespace CaptureTool
         {
             try
             {
-                bottomRowCache.Remove(worksheet);
-                oneShotRows.Remove(worksheet);
-                workbook.Worksheets.Delete(worksheet.Position);
+                if (workbook.Worksheets.Count < 2)
+                    throw new InvalidOperationException("ワークシートは１つ以上必要です。");
+
+                // 削除後も worksheet が破棄済みシートを指さないようにする。
+                // UI の選択規則に合わせ、先頭を削除したら次、その他は前を選択する。
+                IXLWorksheet deletingSheet = worksheet;
+                int deletingPosition = deletingSheet.Position;
+                int nextPosition = deletingPosition == 1 ? 2 : deletingPosition - 1;
+                IXLWorksheet nextSheet = workbook.Worksheet(nextPosition);
+
+                bottomRowCache.Remove(deletingSheet);
+                oneShotRows.Remove(deletingSheet);
+                workbook.Worksheets.Delete(deletingPosition);
+
+                worksheet = nextSheet;
+                LoadWorkSheet(worksheet);
                 SetWorkSheetsDictionary();
                 AutoSaveOrModFlagUpdate();
             }
