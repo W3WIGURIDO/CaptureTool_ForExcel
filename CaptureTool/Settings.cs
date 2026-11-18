@@ -647,11 +647,23 @@ namespace CaptureTool
             }
         }
 
+        public bool TryGetSelectedWorkSheet(out KeyValuePair<int, string> selection)
+        {
+            selection = default(KeyValuePair<int, string>);
+            if (WorkSheets == null || WorkSheetsIndex < 0 ||
+                WorkSheetsIndex >= WorkSheets.Count)
+                return false;
+
+            selection = WorkSheets.ElementAt(WorkSheetsIndex);
+            return true;
+        }
+
+        // ComboBox が ItemsSource 更新中に SelectedIndex=-1 になる場合がある。
         public int SelectedWorkSheetsKey
         {
             get
             {
-                return WorkSheets.ElementAt(WorkSheetsIndex).Key;
+                return TryGetSelectedWorkSheet(out var selection) ? selection.Key : 0;
             }
         }
 
@@ -659,7 +671,7 @@ namespace CaptureTool
         {
             get
             {
-                return WorkSheets.ElementAt(WorkSheetsIndex).Value;
+                return TryGetSelectedWorkSheet(out var selection) ? selection.Value : string.Empty;
             }
         }
 

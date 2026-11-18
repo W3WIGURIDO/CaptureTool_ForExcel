@@ -496,7 +496,8 @@ namespace CaptureTool
                 if (!TryApplyImageLayout())
                     return;
                 settings.SaveSettings();
-                ResetHotKey();
+                if (!isNoFileMode && closedXML != null && closedXML.HasWorkbook)
+                    ResetHotKey();
                 OverlayDialog overlayDialog = new OverlayDialog("設定保存完了")
                 {
                     Owner = this
@@ -724,7 +725,9 @@ namespace CaptureTool
         {
             EnqueueWorkbookOperation(() =>
             {
-                string previousName = settings.SelectedWorkSheetsValue;
+                if (!settings.TryGetSelectedWorkSheet(out var selectedSheet))
+                    return;
+                string previousName = selectedSheet.Value;
                 string name = new StringInputWindow()
                 {
                     Title = "名前を入力", Owner = this, Text = previousName, SelectAllText = true
@@ -899,7 +902,9 @@ namespace CaptureTool
         {
             EnqueueWorkbookOperation(() =>
             {
-                string sheetName = settings.SelectedWorkSheetsValue;
+                if (!settings.TryGetSelectedWorkSheet(out var selectedSheet))
+                    return;
+                string sheetName = selectedSheet.Value;
                 if (imageGridList.ContainsKey(sheetName))
                 {
                     if (imageGridList[sheetName].Visibility != Visibility.Hidden)
@@ -909,13 +914,13 @@ namespace CaptureTool
                 }
                 else
                 {
-                    ImageGridWindow imageGridWindow = new ImageGridWindow(ImageGridSource.GetSourceFromMemoryStream(closedXML.GetImageList())) { Title = string.Format("シート：[{0}]の画像一覧", settings.SelectedWorkSheetsValue) };
+                    ImageGridWindow imageGridWindow = new ImageGridWindow(ImageGridSource.GetSourceFromMemoryStream(closedXML.GetImageList())) { Title = string.Format("シート：[{0}]の画像一覧", sheetName) };
                     imageGridWindow.Closed += (igsender, ige) =>
                     {
-                        if (imageGridList.ContainsKey(sheetName))
-                        {
-                            imageGridList.Remove(sheetName);
-                        }
+                        // シート名変更でキーが変わっても、閉じたウィンドウを削除する。
+                        foreach (var entry in imageGridList.Where(
+                            pair => ReferenceEquals(pair.Value, imageGridWindow)).ToArray())
+                            imageGridList.Remove(entry.Key);
                     };
                     imageGridList.Add(sheetName, imageGridWindow);
                     imageGridWindow.Show();
@@ -954,24 +959,26 @@ namespace CaptureTool
 
         private void ReOpenFile()
         {
-            int prevIndex = settings.WorkSheetsIndex;
-            string prevName = settings.SelectedWorkSheetsValue;
+            int previousPosition = closedXML.CurrentWorksheetPosition;
+            settings.WorkSheets.TryGetValue(previousPosition, out string previousName);
             CloseImageGridWindows();
-            if (!closedXML.OpenWorkBook()) return;
-            if (settings.WorkSheetsIndex == prevIndex)
-            {
-                closedXML.ChangeSelectionWorkSheet(settings.SelectedWorkSheetsKey);
-            }
-            else
-            {
-                int nowIndex = settings.WorkSheets.Values.ToList().IndexOf(prevName);
-                settings.WorkSheetsIndex = nowIndex;
-            }
+            if (!closedXML.OpenWorkBook())
+                return;
+
+            int index = string.IsNullOrEmpty(previousName) ? -1 :
+                settings.WorkSheets.Values.ToList().IndexOf(previousName);
+            if (index < 0)
+                index = Math.Max(0, Math.Min(previousPosition - 1, settings.WorkSheets.Count - 1));
+
+            settings.WorkSheetsIndex = index;
+            closedXML.ChangeSelectionWorkSheet(settings.WorkSheets.ElementAt(index).Key);
         }
 
         private void UpdateViewImageWindowSource()
         {
-            string sheetName = settings.SelectedWorkSheetsValue;
+            if (!settings.TryGetSelectedWorkSheet(out var selectedSheet))
+                return;
+            string sheetName = selectedSheet.Value;
             if (imageGridList.ContainsKey(sheetName))
             {
                 if (imageGridList[sheetName].Visibility != Visibility.Hidden)
@@ -1027,8 +1034,10 @@ namespace CaptureTool
                         return;
                     }
                 }
-                string sheetName = settings.SelectedWorkSheetsValue;
-                ImageGridWindow imageGridWindow = new ImageGridWindow(ImageGridSource.GetSourceFromMemoryStream(closedXML.GetImageList(), true)) { Title = string.Format("シート：[{0}]の削除する画像を選択(※注意　削除後、シートは自動保存されます)", settings.SelectedWorkSheetsValue) };
+                if (!settings.TryGetSelectedWorkSheet(out var selectedSheet))
+                    return;
+                string sheetName = selectedSheet.Value;
+                ImageGridWindow imageGridWindow = new ImageGridWindow(ImageGridSource.GetSourceFromMemoryStream(closedXML.GetImageList(), true)) { Title = string.Format("シート：[{0}]の削除する画像を選択(※注意　削除後、シートは自動保存されます)", sheetName) };
                 if (imageGridWindow.ShowDialog(out bool[] chResult) && chResult.Contains(true))
                 {
                     closedXML.ReplaceDeletedImagesSheet(chResult);
@@ -1045,10 +1054,14 @@ namespace CaptureTool
                 SheetSelectionWindow sheetSelectionWindow = new SheetSelectionWindow(settings.WorkSheets);
                 if (sheetSelectionWindow.ShowDialog(out Dictionary<int, string> result))
                 {
-                    string prevName = settings.SelectedWorkSheetsValue;
-                    closedXML.SortWorkSheet(result);
-                    int nowIndex = settings.WorkSheets.Values.ToList().IndexOf(prevName);
-                    settings.WorkSheetsIndex = nowIndex;
+                    if (!settings.TryGetSelectedWorkSheet(out var selectedSheet))
+                        return;
+                    bool completed = closedXML.SortWorkSheet(result);
+                    if (!completed)
+                        return;
+                    int nowIndex = settings.WorkSheets.Values.ToList().IndexOf(selectedSheet.Value);
+                    if (nowIndex >= 0)
+                        settings.WorkSheetsIndex = nowIndex;
                 }
 
             });
@@ -1058,11 +1071,13 @@ namespace CaptureTool
         {
             EnqueueWorkbookOperation(() =>
             {
+                if (!settings.TryGetSelectedWorkSheet(out var selectedSheet))
+                    return;
                 bool result = false;
                 string name;
                 if (settings.AutoSetWorkSheetName == true)
                 {
-                    string lastSheetName = settings.SelectedWorkSheetsValue;
+                    string lastSheetName = selectedSheet.Value;
                     int count = 1;
                     string autoName = lastSheetName + string.Format("({0})", count++);
                     while (settings.WorkSheets.Values.Contains(autoName))

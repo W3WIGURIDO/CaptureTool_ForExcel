@@ -389,10 +389,28 @@ namespace CaptureTool
             worksheet = nextWorksheet;
             bottomRowCache.Clear();
             oneShotRows.Clear();
-            settings.Row = settings.StartRow;
-            settings.WorkSheets = nextSheets;
             hasSavedFile = false;
             ModFlag = true;
+
+            // 新ブック採用後の画面通知で例外が出ても、旧ブックを指し直さない。
+            try
+            {
+                settings.Row = settings.StartRow;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine(ex);
+                MessageBox.Show("新規ブックの行表示を更新できませんでした。\n" + ex.Message);
+            }
+            try
+            {
+                settings.WorkSheets = nextSheets;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine(ex);
+                MessageBox.Show("新規ブックのシート一覧表示を更新できませんでした。\n" + ex.Message);
+            }
 
             try
             {
@@ -550,44 +568,78 @@ namespace CaptureTool
             }
         }
 
-        public void SortWorkSheet(Dictionary<int, string> sortInfo)
+        public bool SortWorkSheet(Dictionary<int, string> sortInfo)
         {
+            bool changed = false;
             try
             {
-                Dictionary<string, IXLWorksheet> wsDic = workbook.Worksheets.ToDictionary(ws => { return ws.Name; }, ws => { return ws; });
-                sortInfo.Select(si =>
+                var sheetsByName = workbook.Worksheets.ToDictionary(ws => ws.Name, ws => ws);
+                int count = sheetsByName.Count;
+                if (sortInfo == null || sortInfo.Count != count ||
+                    sortInfo.Values.Distinct().Count() != count ||
+                    sortInfo.Keys.Any(position => position < 1 || position > count) ||
+                    sortInfo.Values.Any(name => !sheetsByName.ContainsKey(name)))
+                    throw new InvalidOperationException("ワークシートの並び替え情報が不正です。");
+
+                foreach (var entry in sortInfo)
                 {
-                    if (wsDic.ContainsKey(si.Value))
+                    IXLWorksheet sheet = sheetsByName[entry.Value];
+                    if (sheet.Position != entry.Key)
                     {
-                        wsDic[si.Value].Position = si.Key;
-                        return si.Key;
+                        // 並び替え中の例外でも変更が未保存として残るようにする。
+                        changed = true;
+                        ModFlag = true;
+                        sheet.Position = entry.Key;
                     }
-                    else
-                    {
-                        return 0;
-                    }
-                }).ToArray();
+                }
                 SetWorkSheetsDictionary();
+            }
+            catch (Exception ex)
+            {
+                if (changed)
+                {
+                    ModFlag = true;
+                    try { SetWorkSheetsDictionary(); }
+                    catch (Exception syncError) { Debug.WriteLine(syncError); }
+                }
+                MessageBox.Show(ex.Message);
+                return false;
+            }
+
+            try
+            {
                 AutoSaveOrModFlagUpdate();
             }
             catch (Exception ex)
             {
-                MessageBox.Show(ex.Message);
+                MessageBox.Show("並び替えは適用されましたが、保存できていません。\n" + ex.Message);
             }
+            return true;
         }
 
-        public void CopyWorkSheet(string newName)
+        public bool CopyWorkSheet(string newName)
         {
             try
             {
                 worksheet.CopyTo(newName, worksheet.Position + 1);
+                ModFlag = true;
                 SetWorkSheetsDictionary();
-                AutoSaveOrModFlagUpdate();
             }
             catch (Exception ex)
             {
                 MessageBox.Show(ex.Message);
+                return false;
             }
+
+            try
+            {
+                AutoSaveOrModFlagUpdate();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("コピーは適用されましたが、保存できていません。\n" + ex.Message);
+            }
+            return true;
         }
 
         private void AutoSaveOrModFlagUpdate()
