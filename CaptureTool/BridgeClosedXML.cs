@@ -46,12 +46,13 @@ namespace CaptureTool
                 catch (Exception ex)
                 {
                     MessageBox.Show(ex.Message);
-                    Environment.Exit(1);
+                    throw;
                 }
             }
             else
             {
-                CreateNewBook();
+                if (!CreateNewBook())
+                    throw new InvalidOperationException("ワークブックの作成に失敗しました。");
             }
             AutoSave = settings.EnableWorkBookAutoSave == true;
         }
@@ -280,59 +281,85 @@ namespace CaptureTool
             }
         }
 
-        public void SaveAsNowBook()
+        public bool SaveAsNowBook()
         {
             try
             {
                 workbook.SaveAs(settings.FileName);
+                ModFlag = false;
+                return true;
             }
             catch (Exception ex)
             {
+                ModFlag = true;
                 MessageBox.Show(ex.Message);
+                return false;
             }
         }
 
         public bool OpenWorkBook()
         {
-            if (File.Exists(settings.FileName))
-            {
-                try
-                {
-                    bottomRowCache.Clear();
-                    oneShotRows.Clear();
-                    workbook = new XLWorkbook(settings.FileName);
-                    worksheet = workbook.Worksheet(1);
-                    LoadWorkSheet(worksheet);
-                    SetWorkSheetsDictionary();
-                    return true;
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show(ex.Message);
-                    return false;
-                }
-            }
-            return false;
-        }
+            if (!File.Exists(settings.FileName))
+                return false;
 
-        public bool CreateNewBook()
-        {
+            XLWorkbook nextWorkbook = null;
+            XLWorkbook previousWorkbook = workbook;
+            IXLWorksheet previousWorksheet = worksheet;
             try
             {
+                nextWorkbook = new XLWorkbook(settings.FileName);
+                workbook = nextWorkbook;
+                worksheet = workbook.Worksheet(1);
                 bottomRowCache.Clear();
                 oneShotRows.Clear();
-                workbook = new XLWorkbook();
-                worksheet = workbook.Worksheets.Add("エビデンス");
-                workbook.SaveAs(settings.FileName);
-                settings.Row = settings.StartRow;
-                worksheet.Cell(settings.Row, 1).Select();
+                LoadWorkSheet(worksheet);
                 SetWorkSheetsDictionary();
+                previousWorkbook?.Dispose();
+                ModFlag = false;
                 return true;
             }
             catch (Exception ex)
             {
+                if (nextWorkbook != null)
+                    nextWorkbook.Dispose();
+                workbook = previousWorkbook;
+                worksheet = previousWorksheet;
+                bottomRowCache.Clear();
+                oneShotRows.Clear();
+                if (workbook != null)
+                    SetWorkSheetsDictionary();
                 MessageBox.Show(ex.Message);
-                Environment.Exit(1);
+                return false;
+            }
+        }
+
+        public bool CreateNewBook()
+        {
+            XLWorkbook nextWorkbook = null;
+            try
+            {
+                nextWorkbook = new XLWorkbook();
+                IXLWorksheet nextWorksheet = nextWorkbook.Worksheets.Add("エビデンス");
+                nextWorkbook.SaveAs(settings.FileName);
+
+                XLWorkbook previousWorkbook = workbook;
+                workbook = nextWorkbook;
+                worksheet = nextWorksheet;
+                bottomRowCache.Clear();
+                oneShotRows.Clear();
+                settings.Row = settings.StartRow;
+                worksheet.Cell(settings.Row, 1).Select();
+                SetWorkSheetsDictionary();
+                previousWorkbook?.Dispose();
+                ModFlag = false;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                // 保存に失敗した場合は既存ブックを保持する。アプリは強制終了しない。
+                if (nextWorkbook != null && !ReferenceEquals(nextWorkbook, workbook))
+                    nextWorkbook.Dispose();
+                MessageBox.Show(ex.Message);
                 return false;
             }
         }
@@ -502,6 +529,8 @@ namespace CaptureTool
 
         public void ManualSave()
         {
+            // 失敗時に未保存のままにし、終了時の確認を迂回させない。
+            ModFlag = true;
             workbook.Save();
             ModFlag = false;
         }
@@ -552,7 +581,11 @@ namespace CaptureTool
 
         public void UnloadWorkBook()
         {
-            workbook.Dispose();
+            workbook?.Dispose();
+            workbook = null;
+            worksheet = null;
+            bottomRowCache.Clear();
+            oneShotRows.Clear();
         }
     }
 }

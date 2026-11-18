@@ -36,7 +36,8 @@ namespace CaptureTool
 
         private void ToolStripMenuItem_Exit_Click(object sender, EventArgs e)
         {
-            Environment.Exit(0);
+            // MainWindow の Closing を通し、保存・キャプチャの完了を待つ。
+            owner.Dispatcher.BeginInvoke(new Action(() => owner.Close()));
         }
 
         private void ToolStripMenuItem_Open_Click(object sender, EventArgs e)
