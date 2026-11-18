@@ -23,6 +23,9 @@ namespace CaptureTool
         private readonly Dictionary<IXLWorksheet, int> oneShotRows = new Dictionary<IXLWorksheet, int>();
         public bool ModFlag { get; set; } = false;
         public bool AutoSave { get; set; } = true;
+        private bool hasSavedFile;
+        public bool HasSavedFile => hasSavedFile;
+        public bool HasWorkbook => workbook != null;
 
         private void SetWorkSheetsDictionary()
         {
@@ -42,6 +45,7 @@ namespace CaptureTool
                     worksheet = workbook.Worksheet(1);
                     LoadWorkSheet(worksheet);
                     SetWorkSheetsDictionary();
+                    hasSavedFile = true;
                 }
                 catch (Exception ex)
                 {
@@ -253,32 +257,54 @@ namespace CaptureTool
             ws.Cell(settings.Row, 1).Select();
         }
 
-        public void AddWorkSheet(string name)
+        public bool AddWorkSheet(string name)
         {
             try
             {
                 workbook.AddWorksheet(name, workbook.Worksheets.Count + 1);
-                AutoSaveOrModFlagUpdate();
+                ModFlag = true;
                 SetWorkSheetsDictionary();
             }
             catch (Exception ex)
             {
                 MessageBox.Show(ex.Message);
+                return false;
             }
+
+            try
+            {
+                AutoSaveOrModFlagUpdate();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("シートは追加されましたが、保存できていません。\n" + ex.Message);
+            }
+            return true;
         }
 
-        public void RenameWorkSheet(string name)
+        public bool RenameWorkSheet(string name)
         {
             try
             {
                 worksheet.Name = name;
-                AutoSaveOrModFlagUpdate();
+                ModFlag = true;
                 SetWorkSheetsDictionary();
             }
             catch (Exception ex)
             {
                 MessageBox.Show(ex.Message);
+                return false;
             }
+
+            try
+            {
+                AutoSaveOrModFlagUpdate();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("シート名は変更されましたが、保存できていません。\n" + ex.Message);
+            }
+            return true;
         }
 
         public bool SaveAsNowBook()
@@ -286,6 +312,7 @@ namespace CaptureTool
             try
             {
                 workbook.SaveAs(settings.FileName);
+                hasSavedFile = true;
                 ModFlag = false;
                 return true;
             }
@@ -305,6 +332,7 @@ namespace CaptureTool
             XLWorkbook nextWorkbook = null;
             XLWorkbook previousWorkbook = workbook;
             IXLWorksheet previousWorksheet = worksheet;
+            bool previousHasSavedFile = hasSavedFile;
             try
             {
                 nextWorkbook = new XLWorkbook(settings.FileName);
@@ -315,6 +343,7 @@ namespace CaptureTool
                 LoadWorkSheet(worksheet);
                 SetWorkSheetsDictionary();
                 previousWorkbook?.Dispose();
+                hasSavedFile = true;
                 ModFlag = false;
                 return true;
             }
@@ -324,6 +353,7 @@ namespace CaptureTool
                     nextWorkbook.Dispose();
                 workbook = previousWorkbook;
                 worksheet = previousWorksheet;
+                hasSavedFile = previousHasSavedFile;
                 bottomRowCache.Clear();
                 oneShotRows.Clear();
                 if (workbook != null)
@@ -336,32 +366,54 @@ namespace CaptureTool
         public bool CreateNewBook()
         {
             XLWorkbook nextWorkbook = null;
+            IXLWorksheet nextWorksheet;
+            Dictionary<int, string> nextSheets;
             try
             {
+                // 新規ブック自体は保存先ファイルが使えなくても作成する。
                 nextWorkbook = new XLWorkbook();
-                IXLWorksheet nextWorksheet = nextWorkbook.Worksheets.Add("エビデンス");
-                nextWorkbook.SaveAs(settings.FileName);
-
-                XLWorkbook previousWorkbook = workbook;
-                workbook = nextWorkbook;
-                worksheet = nextWorksheet;
-                bottomRowCache.Clear();
-                oneShotRows.Clear();
-                settings.Row = settings.StartRow;
-                worksheet.Cell(settings.Row, 1).Select();
-                SetWorkSheetsDictionary();
-                previousWorkbook?.Dispose();
-                ModFlag = false;
-                return true;
+                nextWorksheet = nextWorkbook.Worksheets.Add("エビデンス");
+                nextWorksheet.Cell(settings.StartRow, 1).Select();
+                nextSheets = nextWorkbook.Worksheets.OrderBy(ws => ws.Position)
+                    .ToDictionary(ws => ws.Position, ws => ws.Name);
             }
             catch (Exception ex)
             {
-                // 保存に失敗した場合は既存ブックを保持する。アプリは強制終了しない。
-                if (nextWorkbook != null && !ReferenceEquals(nextWorkbook, workbook))
-                    nextWorkbook.Dispose();
+                nextWorkbook?.Dispose();
                 MessageBox.Show(ex.Message);
                 return false;
             }
+
+            XLWorkbook previousWorkbook = workbook;
+            workbook = nextWorkbook;
+            worksheet = nextWorksheet;
+            bottomRowCache.Clear();
+            oneShotRows.Clear();
+            settings.Row = settings.StartRow;
+            settings.WorkSheets = nextSheets;
+            hasSavedFile = false;
+            ModFlag = true;
+
+            try
+            {
+                previousWorkbook?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine(ex);
+                MessageBox.Show("以前のブックの解放に失敗しました: " + ex.Message);
+            }
+
+            try
+            {
+                ManualSave(); // 初回は SaveAs。失敗しても新規ブックを維持する。
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("新規ブックは作成されましたが、ファイルへ保存できませんでした。\n" +
+                                "未保存のまま保持しています。別の保存先への保存も可能です。\n" + ex.Message);
+            }
+            return true;
         }
 
         public MemoryStream[] GetImageList()
@@ -373,7 +425,7 @@ namespace CaptureTool
             }).ToArray();
         }
 
-        public void DeleteWorkSheet()
+        public bool DeleteWorkSheet()
         {
             try
             {
@@ -390,16 +442,26 @@ namespace CaptureTool
                 bottomRowCache.Remove(deletingSheet);
                 oneShotRows.Remove(deletingSheet);
                 workbook.Worksheets.Delete(deletingPosition);
-
                 worksheet = nextSheet;
+                ModFlag = true;
                 LoadWorkSheet(worksheet);
                 SetWorkSheetsDictionary();
-                AutoSaveOrModFlagUpdate();
             }
             catch (Exception ex)
             {
                 MessageBox.Show(ex.Message);
+                return false;
             }
+
+            try
+            {
+                AutoSaveOrModFlagUpdate();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("シートは削除されましたが、保存できていません。\n" + ex.Message);
+            }
+            return true;
         }
 
         /// <summary>
@@ -542,9 +604,12 @@ namespace CaptureTool
 
         public void ManualSave()
         {
-            // 失敗時に未保存のままにし、終了時の確認を迂回させない。
             ModFlag = true;
-            workbook.Save();
+            if (hasSavedFile)
+                workbook.Save();
+            else
+                workbook.SaveAs(settings.FileName);
+            hasSavedFile = true;
             ModFlag = false;
         }
 
@@ -597,6 +662,8 @@ namespace CaptureTool
             workbook?.Dispose();
             workbook = null;
             worksheet = null;
+            hasSavedFile = false;
+            ModFlag = false;
             bottomRowCache.Clear();
             oneShotRows.Clear();
         }

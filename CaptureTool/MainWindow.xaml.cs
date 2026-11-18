@@ -389,7 +389,7 @@ namespace CaptureTool
                 }
                 return false;
             }
-            if (closedXML == null) return false;
+            if (closedXML == null || !closedXML.HasWorkbook) return false;
             closedXML.SetOneShotRow(row);
             return true;
         }
@@ -413,7 +413,8 @@ namespace CaptureTool
         {
             EnqueueWorkbookOperation(() =>
             {
-                if (closedXML == null || rowManagementModeSelect.SelectedIndex < 0)
+                if (closedXML == null || !closedXML.HasWorkbook ||
+                    rowManagementModeSelect.SelectedIndex < 0)
                     return;
                 int previousMode = settings.RowManagementModeIndex;
                 int requestedMode = rowManagementModeSelect.SelectedIndex;
@@ -436,7 +437,7 @@ namespace CaptureTool
         {
             EnqueueWorkbookOperation(() =>
             {
-                if (closedXML != null && settings.IsPicturePositionMode)
+                if (closedXML != null && closedXML.HasWorkbook && settings.IsPicturePositionMode)
                     closedXML.RefreshCurrentRow();
 
             });
@@ -469,9 +470,12 @@ namespace CaptureTool
             settings.ImageGapRows = gapRows;
             if (changed)
             {
-                closedXML.ApplyStartRowToEmptySheet(previousStartRow);
-                if (settings.IsPicturePositionMode)
-                    closedXML.RefreshCurrentRow();
+                if (closedXML != null && closedXML.HasWorkbook)
+                {
+                    closedXML.ApplyStartRowToEmptySheet(previousStartRow);
+                    if (settings.IsPicturePositionMode)
+                        closedXML.RefreshCurrentRow();
+                }
             }
             return true;
         }
@@ -509,11 +513,15 @@ namespace CaptureTool
                 if (WpfFolderBrowser.CustomMessageBox.Show(this, "設定をリセットします", "確認", MessageBoxButton.OKCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel, MessageBoxOptions.None) == MessageBoxResult.OK)
                 {
                     int previousStartRow = settings.StartRow;
-                    if (settings.RowManagementModeIndex == 1)
+                    if (closedXML != null && closedXML.HasWorkbook &&
+                        settings.RowManagementModeIndex == 1)
                         closedXML.SwitchRowManagementMode(0);
                     settings.ResetSettings();
-                    closedXML.ApplyStartRowToEmptySheet(previousStartRow);
-                    closedXML.RefreshCurrentRow();
+                    if (closedXML != null && closedXML.HasWorkbook)
+                    {
+                        closedXML.ApplyStartRowToEmptySheet(previousStartRow);
+                        closedXML.RefreshCurrentRow();
+                    }
                 }
 
             });
@@ -703,8 +711,12 @@ namespace CaptureTool
                 }
                 else
                 {
-                    closedXML.AddWorkSheet(name);
-                    settings.WorkSheetsIndex = settings.WorkSheets.Values.ToList().IndexOf(name);
+                    if (closedXML.AddWorkSheet(name))
+                    {
+                        int index = settings.WorkSheets.Values.ToList().IndexOf(name);
+                        if (index >= 0)
+                            settings.WorkSheetsIndex = index;
+                    }
                 }
         }
 
@@ -712,51 +724,41 @@ namespace CaptureTool
         {
             EnqueueWorkbookOperation(() =>
             {
-                string prevName = string.Empty;
-                if (WorkSheetSelect.SelectedItem is KeyValuePair<int, string> kvp)
+                string previousName = settings.SelectedWorkSheetsValue;
+                string name = new StringInputWindow()
                 {
-                    prevName = kvp.Value;
-                }
-                string name = new StringInputWindow() { Title = "名前を入力", Owner = this, Text = prevName, SelectAllText = true }.ShowDialog(out bool result);
-                if (!result)
+                    Title = "名前を入力", Owner = this, Text = previousName, SelectAllText = true
+                }.ShowDialog(out bool result);
+                if (!result || name == previousName)
+                    return;
+                if (string.IsNullOrEmpty(name) || settings.WorkSheets.ContainsValue(name))
                 {
+                    WpfFolderBrowser.CustomMessageBox.Show(this, "名前が不正か、既に存在しています。", "メッセージ");
                     return;
                 }
-                else if (prevName.Equals(name))
-                {
-                    Debug.WriteLine(name);
-                }
-                else if (string.IsNullOrEmpty(name))
-                {
-                    WpfFolderBrowser.CustomMessageBox.Show(this, "名前が不正です。", "メッセージ");
-                }
-                else if (settings.WorkSheets.ContainsValue(name))
-                {
-                    WpfFolderBrowser.CustomMessageBox.Show(this, "既に存在する名前です。", "メッセージ");
-                }
-                else
-                {
-                    string prevsheetName = settings.SelectedWorkSheetsValue;
-                    ImageGridWindow previmageGridWindow = null;
-                    if (imageGridList.ContainsKey(prevsheetName))
-                    {
-                        previmageGridWindow = imageGridList[prevsheetName];
-                        imageGridList.Remove(prevsheetName);
-                    }
 
-                    WorkSheetSelect.SelectionChanged -= WorkSheetSelect_SelectionChanged;
-                    int prevIndex = WorkSheetSelect.SelectedIndex;
-                    closedXML.RenameWorkSheet(name);
-                    WorkSheetSelect.SelectedIndex = prevIndex;
+                int previousIndex = WorkSheetSelect.SelectedIndex;
+                bool renamed;
+                WorkSheetSelect.SelectionChanged -= WorkSheetSelect_SelectionChanged;
+                try
+                {
+                    renamed = closedXML.RenameWorkSheet(name);
+                    if (renamed)
+                        WorkSheetSelect.SelectedIndex = previousIndex;
+                }
+                finally
+                {
                     WorkSheetSelect.SelectionChanged += WorkSheetSelect_SelectionChanged;
-
-                    if (previmageGridWindow != null)
-                    {
-                        previmageGridWindow.Title = string.Format("シート：[{0}]の画像一覧", name);
-                        imageGridList.Add(name, previmageGridWindow);
-                    }
                 }
+                if (!renamed)
+                    return;
 
+                if (imageGridList.TryGetValue(previousName, out ImageGridWindow gridWindow))
+                {
+                    imageGridList.Remove(previousName);
+                    gridWindow.Title = string.Format("シート：[{0}]の画像一覧", name);
+                    imageGridList[name] = gridWindow;
+                }
             });
         }
 
@@ -765,7 +767,7 @@ namespace CaptureTool
         {
             EnqueueWorkbookOperation(() =>
             {
-                if (revertingWorksheetSelection || closedXML == null)
+                if (revertingWorksheetSelection || closedXML == null || !closedXML.HasWorkbook)
                     return;
                 if (sender is ComboBox combo && combo.SelectedValue is int position &&
                     position != closedXML.CurrentWorksheetPosition)
@@ -875,6 +877,11 @@ namespace CaptureTool
         {
             workSheetGrid.IsEnabled = isEnabledValue;
             saveAsButton.IsEnabled = isEnabledValue;
+            saveWorkBookButton.IsEnabled = isEnabledValue;
+            reopenFileButton.IsEnabled = isEnabledValue;
+            viewImageListButton.IsEnabled = isEnabledValue;
+            addImageListButton.IsEnabled = isEnabledValue;
+            deleteImageListButton.IsEnabled = isEnabledValue;
             WorkSheetSelect.IsEnabled = isEnabledValue;
             if (isEnabledValue)
             {
@@ -978,27 +985,33 @@ namespace CaptureTool
         {
             EnqueueWorkbookOperation(() =>
             {
-                if (settings.WorkSheets.Count >= 2)
+                if (settings.WorkSheets.Count < 2)
                 {
-                    if (WpfFolderBrowser.CustomMessageBox.Show(this, "ワークシートを削除しますか？", "確認", MessageBoxButton.OKCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel, MessageBoxOptions.None) == MessageBoxResult.OK)
-                    {
-                        int prevSelect = settings.WorkSheetsIndex;
-                        closedXML.DeleteWorkSheet();
-                        if (prevSelect == 0)
-                        {
-                            settings.WorkSheetsIndex = 0;
-                        }
-                        else if (prevSelect > 0)
-                        {
-                            settings.WorkSheetsIndex = prevSelect - 1;
-                        }
-                    }
+                    WpfFolderBrowser.CustomMessageBox.Show(this,
+                        "ワークシートは１つ以上存在する必要があります。", "エラー",
+                        MessageBoxButton.OK, MessageBoxImage.Warning,
+                        MessageBoxResult.Cancel, MessageBoxOptions.None);
+                    return;
                 }
-                else
+                if (WpfFolderBrowser.CustomMessageBox.Show(this, "ワークシートを削除しますか？",
+                    "確認", MessageBoxButton.OKCancel, MessageBoxImage.Warning,
+                    MessageBoxResult.Cancel, MessageBoxOptions.None) != MessageBoxResult.OK)
+                    return;
+
+                int deletedPosition = closedXML.CurrentWorksheetPosition;
+                settings.WorkSheets.TryGetValue(deletedPosition, out string deletedName);
+                if (!closedXML.DeleteWorkSheet())
+                    return;
+
+                // 削除されたシートの画像一覧だけを閉じる。
+                if (deletedName != null &&
+                    imageGridList.TryGetValue(deletedName, out ImageGridWindow gridWindow))
                 {
-                    WpfFolderBrowser.CustomMessageBox.Show(this, "ワークシートは１つ以上存在する必要があります。", "エラー", MessageBoxButton.OK, MessageBoxImage.Warning, MessageBoxResult.Cancel, MessageBoxOptions.None);
+                    gridWindow.Close();
+                    imageGridList.Remove(deletedName);
                 }
 
+                settings.WorkSheetsIndex = deletedPosition == 1 ? 0 : deletedPosition - 2;
             });
         }
 
@@ -1206,6 +1219,10 @@ namespace CaptureTool
                         }
                         if (lastResult)
                         {
+                            if (isNoFileMode)
+                                ChangeNoFileMode(true);
+                            if (!closedXML.HasSavedFile)
+                                return; // 未保存の新規ブックを残し、一括処理は中断する
                             lastCount = closedXML.AddImageFromFolder(dir);
                             if (lastCount > 0)
                             {
@@ -1215,7 +1232,15 @@ namespace CaptureTool
                             }
                             else
                             {
+                                if (closedXML.ModFlag)
+                                {
+                                    MessageBox.Show(this,
+                                        "画像の追加または保存に失敗しました。未保存のブックを維持して一括処理を中断します。",
+                                        "一括処理", MessageBoxButton.OK, MessageBoxImage.Warning);
+                                    return;
+                                }
                                 closedXML.UnloadWorkBook();
+                                ChangeNoFileMode(false);
                                 System.IO.File.Delete(settings.FileName);
                                 lastResult = false;
                             }
@@ -1241,6 +1266,8 @@ namespace CaptureTool
                     }
                     closedXML = nextBook;
                     previousBook?.UnloadWorkBook();
+                    if (isNoFileMode && closedXML.HasWorkbook)
+                        ChangeNoFileMode(true);
                 }
                 else
                 {
