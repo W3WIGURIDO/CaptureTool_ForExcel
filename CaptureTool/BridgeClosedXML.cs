@@ -27,6 +27,67 @@ namespace CaptureTool
         public bool HasSavedFile => hasSavedFile;
         public bool HasWorkbook => workbook != null;
 
+        private enum PendingSaveKind { None, Regular, SaveAs }
+        private PendingSaveKind pendingSaveKind;
+        private string pendingSavePath;
+        public bool HasPendingFileLock => pendingSaveKind != PendingSaveKind.None;
+        public string PendingSavePath => pendingSavePath ?? settings.FileName;
+
+        // 他の失敗（容量不足、アクセス権等）は共有違反と混同しない。
+        public static bool IsSharingViolation(Exception exception)
+        {
+            for (Exception current = exception; current != null; current = current.InnerException)
+            {
+                var io = current as IOException;
+                if (io != null &&
+                    (io.HResult == unchecked((int)0x80070020) ||
+                     io.HResult == unchecked((int)0x80070021)))
+                    return true;
+            }
+            return false;
+        }
+
+        private void SetPendingSave(PendingSaveKind kind, string path)
+        {
+            pendingSaveKind = kind;
+            pendingSavePath = path;
+            ModFlag = true;
+        }
+
+        private void ClearPendingSave()
+        {
+            pendingSaveKind = PendingSaveKind.None;
+            pendingSavePath = null;
+        }
+
+        // MainWindow のブック操作キューからのみ呼ぶ。共有違反なら false、その他は例外。
+        public bool RetryPendingSave()
+        {
+            if (!HasPendingFileLock)
+                return true;
+            try
+            {
+                if (pendingSaveKind == PendingSaveKind.SaveAs)
+                    workbook.SaveAs(pendingSavePath);
+                else if (hasSavedFile)
+                    workbook.Save();
+                else
+                    workbook.SaveAs(pendingSavePath);
+
+                if (pendingSaveKind == PendingSaveKind.SaveAs || !hasSavedFile)
+                    settings.FileName = pendingSavePath;
+                hasSavedFile = true;
+                ModFlag = false;
+                ClearPendingSave();
+                return true;
+            }
+            catch (Exception ex) when (IsSharingViolation(ex))
+            {
+                ModFlag = true;
+                return false;
+            }
+        }
+
         private void SetWorkSheetsDictionary()
         {
             settings.WorkSheets = workbook.Worksheets.OrderBy(ws => { return ws.Position; }).ToDictionary(ws => { return ws.Position; }, ws => { return ws.Name; });
@@ -309,12 +370,19 @@ namespace CaptureTool
 
         public bool SaveAsNowBook()
         {
+            string target = settings.FileName;
             try
             {
-                workbook.SaveAs(settings.FileName);
+                workbook.SaveAs(target);
                 hasSavedFile = true;
                 ModFlag = false;
+                ClearPendingSave();
                 return true;
+            }
+            catch (Exception ex) when (IsSharingViolation(ex))
+            {
+                SetPendingSave(PendingSaveKind.SaveAs, target);
+                return false;
             }
             catch (Exception ex)
             {
@@ -345,6 +413,7 @@ namespace CaptureTool
                 previousWorkbook?.Dispose();
                 hasSavedFile = true;
                 ModFlag = false;
+                ClearPendingSave();
                 return true;
             }
             catch (Exception ex)
@@ -391,6 +460,7 @@ namespace CaptureTool
             oneShotRows.Clear();
             hasSavedFile = false;
             ModFlag = true;
+            ClearPendingSave();
 
             // 新ブック採用後の画面通知で例外が出ても、旧ブックを指し直さない。
             try
@@ -644,25 +714,36 @@ namespace CaptureTool
 
         private void AutoSaveOrModFlagUpdate()
         {
-            if (AutoSave)
-            {
+            if (AutoSave && !HasPendingFileLock)
                 ManualSave();
-            }
             else
-            {
                 ModFlag = true;
-            }
         }
 
         public void ManualSave()
         {
             ModFlag = true;
-            if (hasSavedFile)
-                workbook.Save();
-            else
-                workbook.SaveAs(settings.FileName);
-            hasSavedFile = true;
-            ModFlag = false;
+            if (HasPendingFileLock)
+            {
+                RetryPendingSave();
+                return;
+            }
+
+            string target = settings.FileName;
+            try
+            {
+                if (hasSavedFile)
+                    workbook.Save();
+                else
+                    workbook.SaveAs(target);
+                hasSavedFile = true;
+                ModFlag = false;
+                ClearPendingSave();
+            }
+            catch (Exception ex) when (IsSharingViolation(ex))
+            {
+                SetPendingSave(PendingSaveKind.Regular, target);
+            }
         }
 
 
@@ -716,6 +797,7 @@ namespace CaptureTool
             worksheet = null;
             hasSavedFile = false;
             ModFlag = false;
+            ClearPendingSave();
             bottomRowCache.Clear();
             oneShotRows.Clear();
         }

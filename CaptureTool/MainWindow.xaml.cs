@@ -53,42 +53,117 @@ namespace CaptureTool
         private Task _workbookQueue = Task.FromResult(0);
         private bool _closingRequested;
         private bool _closeApproved;
+        private bool _saveWaitCancelled;
+        private int _saveCancelGeneration;
 
         // UI スレッド上でブック操作を順番に実行する。Task.Yield により
         // ダイアログがメッセージループを回す前に _workbookQueue を更新できる。
-        private Task EnqueueWorkbookOperation(Func<Task> operation)
+        private Task EnqueueWorkbookOperation(Func<Task> operation, bool allowWhenSaveCancelled = false)
         {
-            if (_closingRequested)
+            if (_closingRequested || (_saveWaitCancelled && !allowWhenSaveCancelled))
                 return Task.FromResult(0);
 
             Task previous = _workbookQueue;
-            Task current = RunWorkbookOperationAsync(previous, operation);
+            int generation = _saveCancelGeneration;
+            Task current = RunWorkbookOperationAsync(
+                previous, operation, allowWhenSaveCancelled, generation);
             _workbookQueue = current;
             return current;
         }
 
-        private Task EnqueueWorkbookOperation(Action operation)
+        private Task EnqueueWorkbookOperation(Action operation, bool allowWhenSaveCancelled = false)
         {
             return EnqueueWorkbookOperation((Func<Task>)(() =>
             {
                 operation();
                 return Task.FromResult(0);
-            }));
+            }), allowWhenSaveCancelled);
         }
 
-        private async Task RunWorkbookOperationAsync(Task previous, Func<Task> operation)
+        private async Task RunWorkbookOperationAsync(
+            Task previous, Func<Task> operation, bool allowWhenSaveCancelled, int generation)
         {
             await Task.Yield();
             try
             {
                 await previous;
+                // キャンセル前に予約された要求も自動実行しない。
+                if (generation != _saveCancelGeneration ||
+                    (_saveWaitCancelled && !allowWhenSaveCancelled))
+                    return;
                 await operation();
+                if (closedXML != null && closedXML.HasPendingFileLock && !_saveWaitCancelled)
+                    await WaitForFileUnlockAsync();
+                else if (closedXML != null && !closedXML.ModFlag)
+                    _saveWaitCancelled = false;
             }
             catch (Exception ex)
             {
+                if (closedXML != null && closedXML.HasPendingFileLock)
+                {
+                    _saveWaitCancelled = true;
+                    _saveCancelGeneration++;
+                }
                 Debug.WriteLine(ex);
                 MessageBox.Show(this, ex.Message, "ブック操作エラー",
                     MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private async Task WaitForFileUnlockAsync()
+        {
+            SaveLockWaitWindow waitWindow = null;
+            using (var cancellation = new System.Threading.CancellationTokenSource())
+            {
+                try
+                {
+                    // 短いロックは表示を出さず、１回だけ静かに再試行する。
+                    await Task.Delay(700, cancellation.Token);
+                    cancellation.Token.ThrowIfCancellationRequested();
+                    if (closedXML.RetryPendingSave())
+                    {
+                        _saveWaitCancelled = false;
+                        return;
+                    }
+
+                    waitWindow = new SaveLockWaitWindow(closedXML.PendingSavePath);
+                    waitWindow.CancelRequested += (sender, args) => cancellation.Cancel();
+                    waitWindow.Show();
+
+                    int delay = 1500;
+                    while (true)
+                    {
+                        await Task.Delay(delay, cancellation.Token);
+                        cancellation.Token.ThrowIfCancellationRequested();
+                        if (closedXML.RetryPendingSave())
+                        {
+                            _saveWaitCancelled = false;
+                            return;
+                        }
+                        delay = Math.Min(delay * 2, 5000);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    _saveWaitCancelled = true;
+                    _saveCancelGeneration++; // 待機前に予約された操作を再開後も実行しない
+                }
+                finally
+                {
+                    if (waitWindow != null)
+                        waitWindow.CloseAfterWait();
+                }
+            }
+            if (_saveWaitCancelled)
+            {
+                string message = "保存待機を中止しました。ブックは未保存のまま保持しています。\n" +
+                    "待機中のキャプチャ要求は実行しません。手動保存または別名保存をしてください。";
+                if (Visibility == Visibility.Visible)
+                    MessageBox.Show(this, message, "保存待機中止",
+                        MessageBoxButton.OK, MessageBoxImage.Warning);
+                else
+                    MessageBox.Show(message, "保存待機中止",
+                        MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
 
@@ -132,11 +207,20 @@ namespace CaptureTool
                 try
                 {
                     await _workbookQueue; // 受付済みの保存・キャプチャを最後まで待つ
-                    if (!TryApplyImageLayout() ||
-                        (closedXML != null && closedXML.ModFlag && !ShowNonSaveMessage()))
+                    if (!TryApplyImageLayout())
                     {
                         _closingRequested = false;
                         return;
+                    }
+                    if (closedXML != null && closedXML.ModFlag && !ShowNonSaveMessage())
+                    {
+                        if (closedXML.HasPendingFileLock)
+                            await WaitForFileUnlockAsync();
+                        if (closedXML.ModFlag)
+                        {
+                            _closingRequested = false;
+                            return;
+                        }
                     }
 
                     if (settings.EnableAutoSave == true)
@@ -203,11 +287,13 @@ namespace CaptureTool
             StartHotKey();
             //loadFinished = true;
             WorkSheetSelect.SelectionChanged += WorkSheetSelect_SelectionChanged;
+            if (closedXML != null && closedXML.HasPendingFileLock)
+                EnqueueWorkbookOperation(() => { });
         }
 
         private void HotKey_HotKeyPush(object sender, EventArgs e)
         {
-            if (_closingRequested || !(sender is HotKey hotKey))
+            if (_closingRequested || _saveWaitCancelled || !(sender is HotKey hotKey))
                 return;
 
             bool screenCapture = hotKey.HotKeyName == ScreenCapture;
@@ -805,13 +891,27 @@ namespace CaptureTool
             EnqueueWorkbookOperation(() =>
             {
                 string previousPath = settings.FileName;
-                if (ExcelOpenWindow.ExcelFileSaveAs(this, settings) &&
-                    !closedXML.SaveAsNowBook())
+                if (ExcelOpenWindow.ExcelFileSaveAs(this, settings))
                 {
-                    settings.FileName = previousPath;
+                    bool previouslyCancelled = _saveWaitCancelled;
+                    _saveWaitCancelled = false;
+                    try
+                    {
+                        if (!closedXML.SaveAsNowBook() && !closedXML.HasPendingFileLock)
+                        {
+                            settings.FileName = previousPath;
+                            if (previouslyCancelled)
+                                _saveWaitCancelled = true;
+                        }
+                    }
+                    catch
+                    {
+                        _saveWaitCancelled = previouslyCancelled;
+                        throw;
+                    }
                 }
 
-            });
+            }, allowWhenSaveCancelled: true);
         }
 
         private void openFileButton_Click(object sender, RoutedEventArgs e)
@@ -1119,18 +1219,23 @@ namespace CaptureTool
             }
         }
 
-        private void saveWorkBookButton_Click(object sender, RoutedEventArgs e)
+        private async void saveWorkBookButton_Click(object sender, RoutedEventArgs e)
         {
-            EnqueueWorkbookOperation(() =>
+            await EnqueueWorkbookOperation(() =>
             {
-                closedXML.ManualSave();
-                OverlayDialog overlayDialog = new OverlayDialog("上書き保存完了")
+                _saveWaitCancelled = false;
+                try { closedXML.ManualSave(); }
+                catch
                 {
-                    Owner = this
-                };
-                overlayDialog.Show();
+                    _saveWaitCancelled = true;
+                    throw;
+                }
+            }, allowWhenSaveCancelled: true);
+            if (_closingRequested || !IsLoaded || closedXML == null ||
+                closedXML.ModFlag || _saveWaitCancelled)
+                return;
 
-            });
+            new OverlayDialog("上書き保存完了") { Owner = this }.Show();
         }
 
         private bool ShowNonSaveMessage()
@@ -1139,6 +1244,15 @@ namespace CaptureTool
             if (dialogResult == MessageBoxResult.Yes)
             {
                 closedXML.ManualSave();
+                if (closedXML.HasPendingFileLock)
+                    return false; // 呼び出し元が非同期の保存待機へ進む
+                if (closedXML.ModFlag)
+                {
+                    MessageBox.Show(this,
+                        "保存は完了していません。手動保存または別名保存をしてください。",
+                        "未保存", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return false;
+                }
                 return true;
             }
             else if (dialogResult == MessageBoxResult.No)
@@ -1162,6 +1276,13 @@ namespace CaptureTool
             if (dialogResult == MessageBoxResult.OK)
             {
                 closedXML.ManualSave();
+                if (closedXML.ModFlag || closedXML.HasPendingFileLock)
+                {
+                    MessageBox.Show(this,
+                        "保存は完了していません。手動保存または別名保存をしてください。",
+                        "未保存", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return false;
+                }
                 return true;
             }
             else
