@@ -356,6 +356,13 @@ namespace CaptureTool
             new Dictionary<int, string> { { 0, "画像位置から計算（推奨）" }, { 1, "A1セルを使用（旧方式）" } };
         public Dictionary<int, string> RowManagementModes => _RowManagementModes;
 
+        private bool _EnableImageDescriptions;
+        public bool EnableImageDescriptions
+        {
+            get => _EnableImageDescriptions;
+            set { _EnableImageDescriptions = value; RaisePropertyChanged(); }
+        }
+
         private bool _EnableRowPositionCache;
         public bool EnableRowPositionCache
         {
@@ -687,6 +694,20 @@ namespace CaptureTool
             }
         }
 
+        // 0=従来の編集ボタン、1=画像一覧に説明を直接入力
+        private int _ImageListDisplayModeIndex;
+        public int ImageListDisplayModeIndex
+        {
+            get => _ImageListDisplayModeIndex;
+            set
+            {
+                if (value < 0 || value > 1)
+                    throw new ArgumentOutOfRangeException(nameof(ImageListDisplayModeIndex));
+                _ImageListDisplayModeIndex = value;
+                RaisePropertyChanged();
+            }
+        }
+
         private bool? _EnableImageGridSourceAutoUpdate;
         public bool? EnableImageGridSourceAutoUpdate
         {
@@ -816,8 +837,11 @@ namespace CaptureTool
                 EnableSetArrow = GetBoolFromString(nameof(EnableSetArrow), false);
                 AutoSetWorkSheetName = GetBoolFromString(nameof(AutoSetWorkSheetName), false);
                 EnableImageGridSourceAutoUpdate = GetBoolFromString(nameof(EnableImageGridSourceAutoUpdate), false);
+                int imageListMode = GetIntFromString(nameof(ImageListDisplayModeIndex), 0);
+                ImageListDisplayModeIndex = imageListMode == 1 ? 1 : 0;
                 EnableWorkBookAutoSave = GetBoolFromString(nameof(EnableWorkBookAutoSave), true);
                 EnableRowPositionCache = GetBoolFromString(nameof(EnableRowPositionCache), false);
+                EnableImageDescriptions = GetBoolFromString(nameof(EnableImageDescriptions), false);
             }
             else
             {
@@ -864,6 +888,7 @@ namespace CaptureTool
                 new XElement(nameof(ImageGapRows), ImageGapRows.ToString()),
                 new XElement(nameof(RowManagementModeIndex), RowManagementModeIndex.ToString()),
                 new XElement(nameof(EnableRowPositionCache), EnableRowPositionCache.ToString()),
+                new XElement(nameof(EnableImageDescriptions), EnableImageDescriptions.ToString()),
                 new XElement(nameof(SaveFormatIndex), SaveFormatIndex.ToString()),
                 new XElement(nameof(EnableTray), EnableTray.ToString()),
                 new XElement(nameof(OverlayTime), OverlayTime),
@@ -884,6 +909,7 @@ namespace CaptureTool
                 new XElement(nameof(CaptureModeIndex), CaptureModeIndex.ToString()),
                 new XElement(nameof(AutoSetWorkSheetName), AutoSetWorkSheetName.ToString()),
                 new XElement(nameof(EnableImageGridSourceAutoUpdate), EnableImageGridSourceAutoUpdate.ToString()),
+                new XElement(nameof(ImageListDisplayModeIndex), ImageListDisplayModeIndex.ToString()),
                 new XElement(nameof(MSaveKey), MSaveKey.ToString()),
                 new XElement(nameof(MSavePreKey), MSavePreKey.ToString()),
                 new XElement(nameof(AddSheetKey), AddSheetKey.ToString()),
@@ -927,6 +953,8 @@ namespace CaptureTool
             ImageGapRows = 1;
             RowManagementModeIndex = 0;
             EnableRowPositionCache = false;
+            EnableImageDescriptions = false;
+            ImageListDisplayModeIndex = 0;
             Key = Keys.Q;
             PreKey = Keys.Control;
             EnableTray = true;

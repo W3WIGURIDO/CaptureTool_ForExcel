@@ -169,7 +169,7 @@ namespace CaptureTool
         public static OverlayWindow prevOverlayWindow;
         private const string FormatText = "Text";
 
-        public static bool CaptureScreen(BridgeClosedXML bridgeClosedXML, int overlayTime = 3000, bool enableOverlay = true, HorizontalAlignment overlayHorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment overlayVerticalAlignment = VerticalAlignment.Top, bool screenFlag = true, bool aero = true, double imageGridWidth = 200, double imageGridHeight = 150, bool enableCursor = false, int captureMode = 0, bool enableSetArrow = false, System.Drawing.Imaging.PixelFormat pixelFormat = System.Drawing.Imaging.PixelFormat.Format32bppArgb)
+        public static bool CaptureScreen(BridgeClosedXML bridgeClosedXML, int overlayTime = 3000, bool enableOverlay = true, HorizontalAlignment overlayHorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment overlayVerticalAlignment = VerticalAlignment.Top, bool screenFlag = true, bool aero = true, double imageGridWidth = 200, double imageGridHeight = 150, bool enableCursor = false, int captureMode = 0, bool enableSetArrow = false, System.Drawing.Imaging.PixelFormat pixelFormat = System.Drawing.Imaging.PixelFormat.Format32bppArgb, string description = null)
         {
             //const string WordWindowTitle = "<WindowTitle>";
             //const string WordDate = "<Date>";
@@ -234,7 +234,7 @@ namespace CaptureTool
                 }
 
                 Bitmap bitmap = CaptureControl(windowHandle, captureMode, false, screenFlag, aero, enableCursor, enableSetArrow, pixelFormat);
-                bridgeClosedXML.AddImage(bitmap);
+                bridgeClosedXML.AddImage(bitmap, description);
                 //ImageCodecInfo codecInfo = null;
                 //foreach(ImageCodecInfo tmpInfo in ImageCodecInfo.GetImageEncoders())
                 //{

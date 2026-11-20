@@ -48,6 +48,7 @@ namespace CaptureTool
         private static MainWindow mainWindow;
         private BridgeClosedXML closedXML;
         private Dictionary<string, ImageGridWindow> imageGridList = new Dictionary<string, ImageGridWindow>();
+        private int appliedImageListDisplayModeIndex;
         private bool visibleAddSheetWindow = false;
 
         private Task _workbookQueue = Task.FromResult(0);
@@ -96,6 +97,7 @@ namespace CaptureTool
                     await WaitForFileUnlockAsync();
                 else if (closedXML != null && !closedXML.ModFlag)
                     _saveWaitCancelled = false;
+                RefreshImageGridSaveStatuses();
             }
             catch (Exception ex)
             {
@@ -183,6 +185,7 @@ namespace CaptureTool
 
             mainWindow = this;
             this.DataContext = settings;
+            appliedImageListDisplayModeIndex = settings.ImageListDisplayModeIndex;
             _ActiveWindow = this;
             if (ExcelOpenWindow.ExcelFileSelect(settings))
             {
@@ -207,6 +210,21 @@ namespace CaptureTool
                 try
                 {
                     await _workbookQueue; // 受付済みの保存・キャプチャを最後まで待つ
+                    if (imageGridList.Values.ToArray().Any(grid => !CommitGridDescriptionsCore(grid)))
+                    {
+                        _closingRequested = false;
+                        MessageBox.Show(this, "一覧に未反映の説明があります。該当項目の表示を確認してください。",
+                            "終了を中止しました", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        return;
+                    }
+                    if (closedXML != null && closedXML.HasPendingFileLock)
+                        await WaitForFileUnlockAsync();
+                    RefreshImageGridSaveStatuses();
+                    if (_saveWaitCancelled)
+                    {
+                        _closingRequested = false;
+                        return;
+                    }
                     if (!TryApplyImageLayout())
                     {
                         _closingRequested = false;
@@ -302,6 +320,8 @@ namespace CaptureTool
                 if (!TryCommitNextInsertRow(true))
                     return;
 
+                string draftDescription = settings.EnableImageDescriptions
+                    ? nextImageDescriptionTextBox.Text : null;
                 Window targetWindow = miniWindow ?? (Window)this;
                 bool hideWindow = screenCapture || MainProcess.GetForegroundWindow().Equals(Handle);
                 var positionSet = (PositionSet)positionSelect.SelectedValue;
@@ -315,7 +335,7 @@ namespace CaptureTool
                     }
 
                     // 画像の追加から自動保存の完了まで、この処理列の１件として実行する。
-                    if (MainProcess.CaptureScreen(closedXML,
+                    bool captured = MainProcess.CaptureScreen(closedXML,
                         overlayTime: settings.OverlayTimeInt,
                         enableOverlay: settings.EnableOverlay == true,
                         overlayHorizontalAlignment: positionSet.HorizontalAlignment,
@@ -327,10 +347,14 @@ namespace CaptureTool
                         imageGridWidth: settings.OverlayX,
                         imageGridHeight: settings.OverlayY,
                         enableSetArrow: settings.EnableSetArrow == true,
-                        pixelFormat: (System.Drawing.Imaging.PixelFormat)pixelFormatSelect.SelectedValue) &&
-                        settings.EnableImageGridSourceAutoUpdate == true)
+                        pixelFormat: (System.Drawing.Imaging.PixelFormat)pixelFormatSelect.SelectedValue,
+                        description: draftDescription);
+                    if (captured)
                     {
-                        UpdateViewImageWindowSource();
+                        if (draftDescription != null && nextImageDescriptionTextBox.Text == draftDescription)
+                            nextImageDescriptionTextBox.Clear();
+                        if (settings.EnableImageGridSourceAutoUpdate == true)
+                            UpdateViewImageWindowSource();
                     }
                 }
                 finally
@@ -505,6 +529,13 @@ namespace CaptureTool
                 int previousMode = settings.RowManagementModeIndex;
                 int requestedMode = rowManagementModeSelect.SelectedIndex;
                 if (requestedMode == previousMode) return;
+                if (requestedMode == 1 && settings.EnableImageDescriptions && settings.StartRow < 3)
+                {
+                    MessageBox.Show(this, "旧方式で説明を使う場合、先に開始行を3以上に設定してください。",
+                        "切替エラー", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    rowManagementModeSelect.SelectedIndex = previousMode;
+                    return;
+                }
                 try
                 {
                     if (!closedXML.SwitchRowManagementMode(requestedMode))
@@ -550,6 +581,17 @@ namespace CaptureTool
                 return false;
             }
 
+            if (settings.EnableImageDescriptions &&
+                (startRow < (settings.IsPicturePositionMode ? 2 : 3) || gapRows < 1))
+            {
+                MessageBox.Show(this,
+                    settings.IsPicturePositionMode
+                        ? "説明を使う場合、開始行は2以上・空白行数は1以上にしてください。"
+                        : "旧方式ではA1を使うため、開始行は3以上・空白行数は1以上にしてください。",
+                    "配置設定", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return false;
+            }
+
             int previousStartRow = settings.StartRow;
             bool changed = startRow != settings.StartRow || gapRows != settings.ImageGapRows;
             settings.StartRow = startRow;
@@ -564,6 +606,16 @@ namespace CaptureTool
                 }
             }
             return true;
+        }
+
+        private void EnableImageDescriptions_Changed(object sender, RoutedEventArgs e)
+        {
+            EnqueueWorkbookOperation(() =>
+            {
+                if (!settings.EnableImageDescriptions) return;
+                if (!TryApplyImageLayout())
+                    settings.EnableImageDescriptions = false;
+            });
         }
 
         private void ApplyImageLayoutButton_Click(object sender, RoutedEventArgs e)
@@ -846,6 +898,7 @@ namespace CaptureTool
                 {
                     imageGridList.Remove(previousName);
                     gridWindow.Title = string.Format("シート：[{0}]の画像一覧", name);
+                    gridWindow.RenameSheet(name);
                     imageGridList[name] = gridWindow;
                 }
             });
@@ -890,6 +943,8 @@ namespace CaptureTool
         {
             EnqueueWorkbookOperation(() =>
             {
+                if (imageGridList.Values.ToArray().Any(grid => !CommitGridDescriptionsCore(grid)))
+                    return;
                 string previousPath = settings.FileName;
                 if (ExcelOpenWindow.ExcelFileSaveAs(this, settings))
                 {
@@ -938,6 +993,11 @@ namespace CaptureTool
                         ChangeNoFileMode(true);
                     WorkSheetSelect.SelectedIndex = 0;
                 }
+                catch
+                {
+                    settings.FileName = previousPath;
+                    throw;
+                }
                 finally
                 {
                     WorkSheetSelect.SelectionChanged += WorkSheetSelect_SelectionChanged;
@@ -968,6 +1028,11 @@ namespace CaptureTool
                     if (isNoFileMode)
                         ChangeNoFileMode(true);
                     WorkSheetSelect.SelectedIndex = 0;
+                }
+                catch
+                {
+                    settings.FileName = previousPath;
+                    throw;
                 }
                 finally
                 {
@@ -1014,7 +1079,11 @@ namespace CaptureTool
                 }
                 else
                 {
-                    ImageGridWindow imageGridWindow = new ImageGridWindow(ImageGridSource.GetSourceFromMemoryStream(closedXML.GetImageList())) { Title = string.Format("シート：[{0}]の画像一覧", sheetName) };
+                    ImageGridWindow imageGridWindow = new ImageGridWindow(ImageGridSource.GetSourceFromImageEntries(closedXML.GetImageEntries())) { Title = string.Format("シート：[{0}]の画像一覧", sheetName) };
+                    imageGridWindow.SetInlineMode(settings.ImageListDisplayModeIndex == 1);
+                    imageGridWindow.EditDescriptionRequested += photo => EditImageDescription(imageGridWindow, photo);
+                    imageGridWindow.InlineDescriptionCommitRequested += CommitInlineDescription;
+                    imageGridWindow.InlineCloseRequested += CloseImageGridAfterCommit;
                     imageGridWindow.Closed += (igsender, ige) =>
                     {
                         // シート名変更でキーが変わっても、閉じたウィンドウを削除する。
@@ -1049,11 +1118,19 @@ namespace CaptureTool
             });
         }
 
-        // ブックを切り替える前に、旧ブックの画像ストリームを参照する一覧を閉じる。
+        // ブックの破棄より前に未確定の説明を反映する。失敗した一覧は閉じない。
         private void CloseImageGridWindows()
         {
-            foreach (var gridWindow in imageGridList.Values.ToArray())
-                gridWindow.Close();
+            var windows = imageGridList.Values.ToArray();
+            bool hadDrafts = windows.Any(grid => grid.Photos.Any(photo => photo.HasDirtyDescription));
+            if (windows.Any(grid => !CommitGridDescriptionsCore(grid)))
+                throw new InvalidOperationException("画像一覧に未反映の説明があります。内容を確認して再試行してください。");
+            if (hadDrafts && closedXML != null && closedXML.ModFlag && !closedXML.HasPendingFileLock)
+                throw new InvalidOperationException("説明はブック未保存です。保存してからブックを切り替えてください。");
+            if (closedXML != null && closedXML.HasPendingFileLock)
+                throw new InvalidOperationException("説明の保存待機中です。ブックの切り替えは保存後に実行してください。");
+            foreach (var grid in windows)
+                grid.AllowCloseAfterCommit();
             imageGridList.Clear();
         }
 
@@ -1083,9 +1160,199 @@ namespace CaptureTool
             {
                 if (imageGridList[sheetName].Visibility != Visibility.Hidden)
                 {
-                    imageGridList[sheetName].SetPhotos(ImageGridSource.GetPhotosFromMemoryStream(closedXML.GetImageList()));
+                    imageGridList[sheetName].SetPhotos(ImageGridSource.GetPhotosFromImageEntries(closedXML.GetImageEntries()));
                 }
             }
+        }
+
+        private void RefreshImageGridSaveStatuses()
+        {
+            if (closedXML == null) return;
+            foreach (var grid in imageGridList.Values)
+            {
+                foreach (var photo in grid.Photos)
+                {
+                    if (photo.HasDirtyDescription || photo.IsCommitPending) continue;
+                    if (photo.StatusText != "保存待ち" && photo.StatusText != "ブック未保存")
+                        continue;
+                    if (closedXML.HasPendingFileLock && !_saveWaitCancelled) continue;
+                    photo.IsWorkbookUnsaved = closedXML.ModFlag;
+                    photo.StatusText = closedXML.ModFlag ? "ブック未保存" : "保存済み";
+                    if (photo.StatusText == "保存済み") grid.ShowSavedBriefly();
+                }
+            }
+        }
+
+        private async void ImageListDisplayModeSelect_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (imageListDisplayModeSelect.SelectedIndex < 0) return;
+            bool executed = false;
+            await EnqueueWorkbookOperation(() =>
+            {
+                executed = true;
+                int mode = imageListDisplayModeSelect.SelectedIndex;
+                if (mode == appliedImageListDisplayModeIndex) return;
+                if (imageGridList.Values.ToArray().Any(grid => !CommitGridDescriptionsCore(grid)) ||
+                    (closedXML != null && closedXML.HasPendingFileLock))
+                {
+                    settings.ImageListDisplayModeIndex = appliedImageListDisplayModeIndex;
+                    return;
+                }
+                foreach (var grid in imageGridList.Values)
+                    grid.SetInlineMode(mode == 1);
+                appliedImageListDisplayModeIndex = mode;
+            });
+            if (!executed && settings.ImageListDisplayModeIndex != appliedImageListDisplayModeIndex)
+                settings.ImageListDisplayModeIndex = appliedImageListDisplayModeIndex;
+        }
+
+        // Workbook更新と画像一覧からの表示更新はすべてブック操作キュー上で実行。
+        private bool CommitPhotoCore(Photo photo, string value)
+        {
+            if (photo.Entry == null)
+            {
+                photo.StatusText = "反映できません";
+                photo.StatusDetail = "対象画像が見つかりません。";
+                return false;
+            }
+            try
+            {
+                string committed = closedXML.UpdateImageDescription(photo.Entry, value);
+                // セル書き込み後に保存だけ失敗したケースを、次の確定時に再試行する。
+                if (closedXML.AutoSave && closedXML.ModFlag && !closedXML.HasPendingFileLock)
+                    closedXML.ManualSave();
+                photo.Entry.Description = committed;
+                photo.Description = committed;
+                photo.IsWorkbookUnsaved = closedXML.ModFlag || closedXML.HasPendingFileLock;
+                photo.StatusDetail = string.Empty;
+                photo.StatusText = closedXML.HasPendingFileLock ? "保存待ち" :
+                    closedXML.ModFlag ? "ブック未保存" : "保存済み";
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine(ex);
+                photo.StatusDetail = ex.Message;
+                // 保存だけ失敗しセルはブック内で更新された場合、Escで古い値へ
+                // 見かけ上だけ戻さない。未保存のブックを保持し手動保存を促す。
+                try
+                {
+                    if (closedXML.ReadImageDescription(photo.Entry) == value)
+                    {
+                        photo.Entry.Description = value;
+                        photo.Description = value;
+                        photo.IsWorkbookUnsaved = true;
+                        photo.StatusText = "ブック未保存";
+                        return true;
+                    }
+                }
+                catch (Exception readError) { Debug.WriteLine(readError); }
+                photo.StatusText = "保存失敗（再試行できます）";
+                return false;
+            }
+        }
+
+        private bool CommitGridDescriptionsCore(ImageGridWindow grid)
+        {
+            if (grid.IsClosedForEditing) return true;
+            bool ok = true;
+            foreach (var photo in grid.Photos.Where(p => p.HasDirtyDescription).ToArray())
+                if (!CommitPhotoCore(photo, photo.DraftDescription))
+                    ok = false;
+            if (ok && grid.Photos.Any(p => p.StatusText == "保存済み"))
+                grid.ShowSavedBriefly();
+            return ok;
+        }
+
+        private async void CommitInlineDescription(ImageGridWindow grid, Photo photo)
+        {
+            if (grid.IsClosedForEditing || !photo.HasDirtyDescription) return;
+            if (photo.IsCommitPending)
+            {
+                photo.CommitAgain = true;
+                return;
+            }
+            photo.IsCommitPending = true;
+            photo.StatusText = "反映待ち";
+            string snapshot = photo.DraftDescription;
+            bool executed = false;
+            bool success = false;
+            await EnqueueWorkbookOperation(() =>
+            {
+                if (grid.IsClosedForEditing) return;
+                executed = true;
+                // 古い入力を、後から確定された新しい内容で上書きしない。
+                if (photo.DraftDescription != snapshot)
+                {
+                    photo.CommitAgain = true;
+                    return;
+                }
+                photo.StatusText = "保存中";
+                success = CommitPhotoCore(photo, snapshot);
+            });
+            photo.IsCommitPending = false;
+            if (grid.IsClosedForEditing) return;
+            if (!executed)
+            {
+                photo.StatusText = "未反映（再試行できます）";
+                photo.StatusDetail = "保存待機の中止などによりブック操作が実行されませんでした。";
+                return;
+            }
+            if (success && !photo.HasDirtyDescription)
+            {
+                photo.IsWorkbookUnsaved = closedXML.ModFlag || closedXML.HasPendingFileLock;
+                photo.StatusText = closedXML.HasPendingFileLock ? "保存待ち" :
+                    closedXML.ModFlag ? "ブック未保存" : "保存済み";
+                if (photo.StatusText == "保存済み") grid.ShowSavedBriefly();
+            }
+            if (photo.CommitAgain && photo.HasDirtyDescription)
+            {
+                photo.CommitAgain = false;
+                CommitInlineDescription(grid, photo);
+            }
+            else
+                photo.CommitAgain = false;
+        }
+
+        private async void CloseImageGridAfterCommit(ImageGridWindow grid)
+        {
+            bool executed = false;
+            bool success = false;
+            await EnqueueWorkbookOperation(() =>
+            {
+                executed = true;
+                success = CommitGridDescriptionsCore(grid);
+            });
+            if (!grid.IsClosedForEditing && executed && success && !_saveWaitCancelled)
+                grid.AllowCloseAfterCommit();
+            else
+            {
+                if (!executed)
+                {
+                    foreach (var photo in grid.Photos.Where(p => p.HasDirtyDescription))
+                    {
+                        photo.StatusText = "未反映（再試行できます）";
+                        photo.StatusDetail = "保存待機などのため、まだブックへ反映されていません。";
+                    }
+                }
+                grid.CancelCloseRequest();
+            }
+        }
+
+        private void EditImageDescription(ImageGridWindow grid, Photo photo)
+        {
+            EnqueueWorkbookOperation(() =>
+            {
+                if (photo.Entry == null || !grid.IsLoaded) return;
+                var editor = new ImageDescriptionWindow(photo.Description) { Owner = grid };
+                if (editor.ShowDialog() != true) return;
+                string value = closedXML.UpdateImageDescription(photo.Entry, editor.Description);
+                photo.Entry.Description = value;
+                photo.Description = value;
+                photo.IsWorkbookUnsaved = closedXML.ModFlag || closedXML.HasPendingFileLock;
+                photo.StatusText = photo.IsWorkbookUnsaved ? "ブック未保存" : "保存済み";
+                if (!photo.IsWorkbookUnsaved) grid.ShowSavedBriefly();
+            });
         }
 
         private void deleteWorkSheetButton_Click(object sender, RoutedEventArgs e)
@@ -1107,6 +1374,11 @@ namespace CaptureTool
 
                 int deletedPosition = closedXML.CurrentWorksheetPosition;
                 settings.WorkSheets.TryGetValue(deletedPosition, out string deletedName);
+                if (deletedName != null &&
+                    imageGridList.TryGetValue(deletedName, out ImageGridWindow deletingGrid) &&
+                    !CommitGridDescriptionsCore(deletingGrid))
+                    return;
+                if (closedXML.HasPendingFileLock) return;
                 if (!closedXML.DeleteWorkSheet())
                     return;
 
@@ -1114,7 +1386,7 @@ namespace CaptureTool
                 if (deletedName != null &&
                     imageGridList.TryGetValue(deletedName, out ImageGridWindow gridWindow))
                 {
-                    gridWindow.Close();
+                    gridWindow.AllowCloseAfterCommit();
                     imageGridList.Remove(deletedName);
                 }
 
@@ -1140,8 +1412,10 @@ namespace CaptureTool
                 ImageGridWindow imageGridWindow = new ImageGridWindow(ImageGridSource.GetSourceFromMemoryStream(closedXML.GetImageList(), true)) { Title = string.Format("シート：[{0}]の削除する画像を選択(※注意　削除後、シートは自動保存されます)", sheetName) };
                 if (imageGridWindow.ShowDialog(out bool[] chResult) && chResult.Contains(true))
                 {
+                    // 旧シートの画像ストリームを保持する一覧を、差替え前に閉じる。
+                    CloseImageGridWindows();
                     closedXML.ReplaceDeletedImagesSheet(chResult);
-                    ReOpenFile();
+                    // 保存がロックされてもインメモリのブックを保持し、操作キューが再試行する。
                 }
 
             });
@@ -1221,17 +1495,24 @@ namespace CaptureTool
 
         private async void saveWorkBookButton_Click(object sender, RoutedEventArgs e)
         {
+            bool saved = false;
             await EnqueueWorkbookOperation(() =>
             {
                 _saveWaitCancelled = false;
-                try { closedXML.ManualSave(); }
+                if (imageGridList.Values.ToArray().Any(grid => !CommitGridDescriptionsCore(grid)))
+                    return;
+                try
+                {
+                    closedXML.ManualSave();
+                    saved = true;
+                }
                 catch
                 {
                     _saveWaitCancelled = true;
                     throw;
                 }
             }, allowWhenSaveCancelled: true);
-            if (_closingRequested || !IsLoaded || closedXML == null ||
+            if (!saved || _closingRequested || !IsLoaded || closedXML == null ||
                 closedXML.ModFlag || _saveWaitCancelled)
                 return;
 
@@ -1296,10 +1577,13 @@ namespace CaptureTool
             EnqueueWorkbookOperation(() =>
             {
                 if (!TryCommitNextInsertRow(true)) return;
-                FileOrFolderWindow fileOrFolderWindow = new FileOrFolderWindow(settings, closedXML) { Owner = this };
+                string draft = settings.EnableImageDescriptions ? nextImageDescriptionTextBox.Text : null;
+                FileOrFolderWindow fileOrFolderWindow = new FileOrFolderWindow(settings, closedXML, draft) { Owner = this };
                 bool imageReaded = fileOrFolderWindow.ShowDialog();
                 if (imageReaded)
                 {
+                    if (draft != null && nextImageDescriptionTextBox.Text == draft)
+                        nextImageDescriptionTextBox.Clear();
                     if (settings.EnableImageGridSourceAutoUpdate == true)
                     {
                         UpdateViewImageWindowSource();

@@ -123,12 +123,170 @@ namespace CaptureTool
         }
 
 
-        public void AddImage(Bitmap bitmap)
+        public void AddImage(Bitmap bitmap, string description = null)
         {
             MemoryStream ms = new MemoryStream();
-            bitmap.Save(ms, System.Drawing.Imaging.ImageFormat.Png);   //using System.Drawing.Imaging;
-            AddImage(ms, bitmap.Height);
+            bitmap.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+            AddImage(ms, bitmap.Height, description);
             AutoSaveOrModFlagUpdate();
+        }
+
+        // 一覧は画像データと配置情報を同じ順序で取得する。ブック切替後の古い一覧は利用しない。
+        public sealed class ImageEntry
+        {
+            public MemoryStream ImageStream { get; set; }
+            public string SheetName { get; set; }
+            public string PictureName { get; set; }
+            public int Index { get; set; }
+            public int StartRow { get; set; }
+            public int StartColumn { get; set; }
+            public string Description { get; set; }
+        }
+
+        private static string GetDescription(IXLWorksheet ws, int startRow, bool legacyMode)
+        {
+            if (startRow < 2 || (legacyMode && startRow == 2))
+                return string.Empty; // 旧方式のA1は行管理専用
+            return ws.Cell(startRow - 1, 1).GetValue<string>();
+        }
+
+        public ImageEntry[] GetImageEntries()
+        {
+            return worksheet.Pictures.Select((picture, index) =>
+            {
+                double offset;
+                IXLCell top = PictureTopLeftCell(picture, out offset);
+                if (top == null)
+                    throw new InvalidOperationException("画像の配置セルを読み取れません。");
+                return new ImageEntry
+                {
+                    ImageStream = picture.ImageStream,
+                    SheetName = worksheet.Name,
+                    PictureName = ReadProperty(picture, "Name") as string,
+                    Index = index,
+                    StartRow = top.Address.RowNumber,
+                    StartColumn = top.Address.ColumnNumber,
+                    Description = top.Address.ColumnNumber == 1
+                        ? GetDescription(worksheet, top.Address.RowNumber, !settings.IsPicturePositionMode)
+                        : string.Empty
+                };
+            }).ToArray();
+        }
+
+        private void ValidateDescriptionCell(IXLWorksheet ws, int startRow, bool requireEmpty)
+        {
+            if (startRow < 2)
+                throw new InvalidOperationException("説明を付ける画像は2行目以降に配置してください。");
+            if (!settings.IsPicturePositionMode && startRow == 2)
+                throw new InvalidOperationException("旧方式のA1は行管理に使用中です。画像を3行目以降に配置してください。");
+
+            var cell = ws.Cell(startRow - 1, 1);
+            if (cell.IsMerged())
+                throw new InvalidOperationException("画像直上のセルが結合されています。説明を配置できません。");
+            if (requireEmpty && !cell.IsEmpty())
+                throw new InvalidOperationException("画像直上のセルには既に値があります。上書きせず挿入を中止しました。");
+
+            // 通常の末尾追加ならキャッシュされた最終行だけで判定できる。
+            if (startRow - 1 > GetBottomRow(ws)) return;
+            // 手入力した挿入行にも対応。既存画像が説明行を覆う場合は配置しない。
+            foreach (var pic in ws.Pictures)
+            {
+                double offsetY;
+                var top = PictureTopLeftCell(pic, out offsetY);
+                if (top == null)
+                    throw new InvalidOperationException("既存画像の配置セルを読み取れません。");
+                int picRow = top.Address.RowNumber;
+                if (picRow == startRow)
+                    throw new InvalidOperationException("同じ開始行に画像があります。画像ごとの説明を区別できません。");
+                if (picRow > startRow - 1) continue;
+                object displayHeight = ReadProperty(pic, "Height");
+                double height = displayHeight == null ? pic.OriginalHeight : Convert.ToDouble(displayHeight);
+                if (GetBottomRowForHeight(ws, picRow, height + Math.Max(0, offsetY)) >= startRow - 1)
+                    throw new InvalidOperationException("説明を置く行に既存画像が重なっています。");
+            }
+        }
+
+        private void WriteDescription(IXLWorksheet ws, int startRow, string description)
+        {
+            if (description != null && description.Length > 32767)
+                throw new ArgumentException("説明は32767文字以内にしてください。", nameof(description));
+            var cell = ws.Cell(startRow - 1, 1);
+            cell.Value = description ?? string.Empty;
+            if (string.IsNullOrEmpty(description)) return;
+            cell.Style.Alignment.WrapText = true;
+            // 行高は縮めない。既存画像と行の位置関係を極力変えない。
+            int width = Math.Max(4, (int)Math.Floor(ws.Column(1).Width));
+            int lines = description.Replace("\r\n", "\n").Replace('\r', '\n')
+                .Split('\n').Sum(line => Math.Max(1, (line.Length + width - 1) / width));
+            ws.Row(startRow - 1).Height =
+                Math.Max(ws.Row(startRow - 1).Height, Math.Min(150, 15 * lines));
+            bottomRowCache.Remove(ws);
+        }
+
+        // 一覧の画像が同じブック・同じ配置に残っている場合にだけ書き換える。
+        public string UpdateImageDescription(ImageEntry entry, string description)
+        {
+            if (entry == null || !workbook.Worksheets.Contains(entry.SheetName))
+                throw new InvalidOperationException("対象のシートが変更されました。画像一覧を開き直してください。");
+            var ws = workbook.Worksheet(entry.SheetName);
+            var pic = ws.Pictures.ElementAtOrDefault(entry.Index);
+            double offset;
+            var top = pic == null ? null : PictureTopLeftCell(pic, out offset);
+            if (top == null || top.Address.RowNumber != entry.StartRow ||
+                top.Address.ColumnNumber != entry.StartColumn || entry.StartColumn != 1 ||
+                (entry.PictureName != null && entry.PictureName != (ReadProperty(pic, "Name") as string)))
+                throw new InvalidOperationException("対象画像が変更されました。画像一覧を開き直してください。");
+            ValidateDescriptionCellForEdit(ws, pic, entry.StartRow);
+            string before = GetDescription(ws, entry.StartRow, !settings.IsPicturePositionMode);
+            if (before == (description ?? string.Empty)) return before;
+            ModFlag = true;
+            WriteDescription(ws, entry.StartRow, description);
+            if (ReferenceEquals(worksheet, ws) && settings.IsPicturePositionMode)
+                LoadWorkSheet(ws);
+            AutoSaveOrModFlagUpdate();
+            return description ?? string.Empty;
+        }
+
+        // 保存エラー時、セルへの反映だけ成功していないかを確認する。
+        public string ReadImageDescription(ImageEntry entry)
+        {
+            if (entry == null || workbook == null || !workbook.Worksheets.Contains(entry.SheetName))
+                throw new InvalidOperationException("対象のシートが変更されました。");
+            var ws = workbook.Worksheet(entry.SheetName);
+            var pic = ws.Pictures.ElementAtOrDefault(entry.Index);
+            double offset;
+            var top = pic == null ? null : PictureTopLeftCell(pic, out offset);
+            if (top == null || top.Address.RowNumber != entry.StartRow ||
+                top.Address.ColumnNumber != entry.StartColumn || entry.StartColumn != 1 ||
+                (entry.PictureName != null && entry.PictureName != (ReadProperty(pic, "Name") as string)))
+                throw new InvalidOperationException("対象画像が変更されました。");
+            return GetDescription(ws, entry.StartRow, !settings.IsPicturePositionMode);
+        }
+
+        private void ValidateDescriptionCellForEdit(IXLWorksheet ws,
+            ClosedXML.Excel.Drawings.IXLPicture current, int startRow)
+        {
+            // 自分自身の画像を除いて配置衝突を調べる。
+            if (startRow < 2 || (!settings.IsPicturePositionMode && startRow == 2))
+                throw new InvalidOperationException("画像直上のセルは説明に使用できません。");
+            if (ws.Cell(startRow - 1, 1).IsMerged())
+                throw new InvalidOperationException("画像直上のセルが結合されています。");
+            foreach (var pic in ws.Pictures)
+            {
+                if (ReferenceEquals(pic, current)) continue;
+                double offset;
+                var top = PictureTopLeftCell(pic, out offset);
+                if (top == null)
+                    throw new InvalidOperationException("画像の配置セルを読み取れません。");
+                int row = top.Address.RowNumber;
+                if (row == startRow)
+                    throw new InvalidOperationException("同じ行の画像が複数あります。");
+                if (row >= startRow) continue;
+                object h = ReadProperty(pic, "Height");
+                if (GetBottomRowForHeight(ws, row,
+                    (h == null ? pic.OriginalHeight : Convert.ToDouble(h)) + Math.Max(0, offset)) >= startRow - 1)
+                    throw new InvalidOperationException("説明の行に別の画像が重なっています。");
+            }
         }
 
         // 画像が占める最後の行。ピクセルと各行の実際の高さを比較する。
@@ -209,11 +367,31 @@ namespace CaptureTool
             settings.Row = row;
         }
 
-        public void AddImage(MemoryStream ms, int height)
+        public void AddImage(MemoryStream ms, int height, string description = null, bool restoring = false)
         {
             int startRow = oneShotRows.TryGetValue(worksheet, out int enteredRow)
                 ? enteredRow : settings.Row;
+            if (description != null && description.Length > 32767)
+                throw new ArgumentException("説明は32767文字以内にしてください。", nameof(description));
+            bool reserveDescription = !restoring && settings.EnableImageDescriptions ||
+                                      !string.IsNullOrEmpty(description);
+            if (reserveDescription)
+                ValidateDescriptionCell(worksheet, startRow, true);
             int imageBottom = GetBottomRowForHeight(worksheet, startRow, height);
+            if (reserveDescription && startRow <= GetBottomRow(worksheet))
+            {
+                foreach (var pic in worksheet.Pictures)
+                {
+                    double offset;
+                    var top = PictureTopLeftCell(pic, out offset);
+                    if (top == null)
+                        throw new InvalidOperationException("既存画像の配置セルを読み取れません。");
+                    int row = top.Address.RowNumber;
+                    if (row > startRow && row - 1 <= imageBottom)
+                        throw new InvalidOperationException(
+                            "挿入画像が既存画像の説明行に重なります。別の挿入行を指定してください。");
+                }
+            }
             int existingBottom = settings.IsPicturePositionMode ? GetBottomRow(worksheet) : 0;
             long next = settings.IsPicturePositionMode
                 ? (long)Math.Max(existingBottom, imageBottom) + 1 + settings.ImageGapRows
@@ -222,8 +400,11 @@ namespace CaptureTool
                 throw new InvalidOperationException("画像または行間隔がExcelの最大行数を超えます。");
 
             ms.Position = 0;
+            ModFlag = true;
             var insertedPic = worksheet.AddPicture(ms);
             insertedPic.MoveTo(worksheet.Cell(startRow, 1));
+            if (!string.IsNullOrEmpty(description))
+                WriteDescription(worksheet, startRow, description);
             // 挿入に成功するまで、手入力の一回限り指定は消費しない。
             oneShotRows.Remove(worksheet);
             bottomRowCache[worksheet] = Math.Max(existingBottom, imageBottom);
@@ -265,6 +446,14 @@ namespace CaptureTool
                     int next = GetComputedNextRow(sheet);
                     values.Add(new KeyValuePair<IXLWorksheet, int>(sheet, next));
                     string existing = sheet.Cell(1, 1).GetValue<string>();
+                    if (!string.IsNullOrEmpty(existing) && sheet.Pictures.Any(pic =>
+                    {
+                        double offset;
+                        var top = PictureTopLeftCell(pic, out offset);
+                        return top != null && top.Address.RowNumber == 2;
+                    }))
+                        throw new InvalidOperationException(
+                            "2行目の画像の直上A1に値があります。旧方式にするとA1が上書きされるため切り替えられません。");
                     if (!string.IsNullOrWhiteSpace(existing))
                         conflicts.Add(sheet.Name);
                 }
@@ -560,41 +749,91 @@ namespace CaptureTool
         /// <param name="deleteSettings"></param>
         public void ReplaceDeletedImagesSheet(bool[] deleteSettings)
         {
-            int count = 0;
-            List<ClosedXML.Excel.Drawings.IXLPicture> addList = new List<ClosedXML.Excel.Drawings.IXLPicture>();
-            deleteSettings.Select(ds =>
+            var pictures = worksheet.Pictures.ToArray();
+            if (deleteSettings == null || deleteSettings.Length != pictures.Length)
+                throw new InvalidOperationException("画像一覧が変更されました。削除する画像を選び直してください。");
+
+            var entries = GetImageEntries();
+            if (entries.GroupBy(entry => entry.StartRow)
+                .Any(group => group.Count() > 1 &&
+                     group.Any(entry => !string.IsNullOrEmpty(entry.Description))))
+                throw new InvalidOperationException(
+                    "同じ開始行に複数の画像があります。説明を取り違えるおそれがあるため、削除を中止しました。");
+            var retained = pictures.Select((pic, i) => new { Picture = pic, Entry = entries[i], Delete = deleteSettings[i] })
+                .Where(item => !item.Delete).ToArray();
+            IXLWorksheet previous = worksheet;
+            int position = previous.Position;
+            string name = previous.Name;
+            int previousRow = settings.Row;
+            bool hadOneShot = oneShotRows.TryGetValue(previous, out int pendingRow);
+            IXLWorksheet replacement = null;
+            // シート差替え前に説明と画像を対で控える。元の開始行を維持し、
+            // 削除後も説明が別の画像に付け替わらないようにする。
+            string temporaryName;
+            do { temporaryName = Guid.NewGuid().ToString("N").Substring(0, 25); }
+            while (workbook.Worksheets.Contains(temporaryName));
+
+            try
             {
-                if (!ds)
+                ModFlag = true;
+                previous.Name = temporaryName;
+                replacement = workbook.AddWorksheet(name, position + 1);
+                replacement.Column(1).Width = previous.Column(1).Width;
+                // 元ブックで行高が変更されていても、画像の占有行と説明行を保つ。
+                foreach (var item in retained)
                 {
-                    if (worksheet.Pictures.Count > count)
-                    {
-                        addList.Add(worksheet.Pictures.ElementAt(count));
-                    }
+                    int row = item.Entry.StartRow;
+                    double offset;
+                    PictureTopLeftCell(item.Picture, out offset);
+                    object h = ReadProperty(item.Picture, "Height");
+                    double displayHeight = h == null ? item.Picture.OriginalHeight : Convert.ToDouble(h);
+                    int bottom = GetBottomRowForHeight(previous, row, displayHeight + Math.Max(0, offset));
+                    for (int r = row; r <= bottom; r++)
+                        replacement.Row(r).Height = previous.Row(r).Height;
+                    if (row > 1 && !string.IsNullOrEmpty(item.Entry.Description))
+                        replacement.Row(row - 1).Height = previous.Row(row - 1).Height;
                 }
-                return count++;
-            }).ToArray();
-            IXLWorksheet prevSheet = worksheet;
-            int prevPosition = prevSheet.Position;
-            string prevName = prevSheet.Name;
-            while (true)
-            {
-                string tmpName = DateTime.Now.GetHashCode().ToString();
-                if (!workbook.Worksheets.Contains(tmpName))
+                worksheet = replacement;
+                oneShotRows.Remove(previous);
+                settings.Row = settings.StartRow;
+                foreach (var item in retained)
                 {
-                    worksheet.Name = tmpName;
-                    break;
+                    SetOneShotRow(item.Entry.StartRow);
+                    // 旧シートの削除後も新画像のストリームを有効に保つ。
+                    var imageCopy = new MemoryStream();
+                    var source = item.Picture.ImageStream;
+                    source.Position = 0;
+                    source.CopyTo(imageCopy);
+                    imageCopy.Position = 0;
+                    AddImage(imageCopy, item.Picture.OriginalHeight,
+                        item.Entry.Description, restoring: true);
+                    if (item.Entry.StartRow > 1 && !string.IsNullOrEmpty(item.Entry.Description))
+                        replacement.Row(item.Entry.StartRow - 1).Height =
+                            Math.Max(replacement.Row(item.Entry.StartRow - 1).Height,
+                                previous.Row(item.Entry.StartRow - 1).Height);
                 }
+                if (retained.Length == 0 && !settings.IsPicturePositionMode)
+                    replacement.Cell(1, 1).Value = settings.StartRow;
             }
-            bottomRowCache.Remove(prevSheet);
-            oneShotRows.Remove(prevSheet);
-            worksheet = workbook.AddWorksheet(prevName, prevPosition + 1);
-            settings.Row = settings.StartRow;
-            addList.Select(al =>
+            catch
             {
-                AddImage(al.ImageStream, al.OriginalHeight);
-                return al;
-            }).ToArray();
-            prevSheet.Delete();
+                // 元のシートは成功が確定するまで削除しない。
+                if (replacement != null)
+                    replacement.Delete();
+                previous.Name = name;
+                worksheet = previous;
+                settings.Row = previousRow;
+                if (hadOneShot) oneShotRows[previous] = pendingRow;
+                bottomRowCache.Clear();
+                SetWorkSheetsDictionary();
+                throw;
+            }
+
+            bottomRowCache.Remove(previous);
+            oneShotRows.Remove(previous);
+            previous.Delete();
+            SetWorkSheetsDictionary();
+            LoadWorkSheet(worksheet);
             ManualSave();
         }
 
@@ -747,7 +986,7 @@ namespace CaptureTool
         }
 
 
-        public int AddImageFromFolder(string dirName)
+        public int AddImageFromFolder(string dirName, string firstDescription = null)
         {                // FileNameで選択されたフォルダを取得する
             int count = 0;
             if (Directory.Exists(dirName))
@@ -764,29 +1003,37 @@ namespace CaptureTool
                 {
                     try
                     {
-                        Bitmap image = new Bitmap(str);
-                        AddImage(image);
+                        using (Bitmap image = new Bitmap(str))
+                            AddImage(image, count == 0 ? firstDescription : null);
                         count++;
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        MessageBox.Show(ex.Message, "画像の配置に失敗しました");
+                        break; // 設定・セルの衝突は次のファイルでも解消しない
                     }
                     catch (Exception ex)
                     {
-                        Debug.WriteLine(ex.StackTrace);
+                        Debug.WriteLine(ex);
                     }
                 }
             }
             return count;
         }
 
-        public void AddImageFromFile(string fileName)
+        public bool AddImageFromFile(string fileName, string description = null)
         {
             try
             {
-                Bitmap bitmap = new Bitmap(fileName);
-                AddImage(bitmap);
+                using (Bitmap bitmap = new Bitmap(fileName))
+                    AddImage(bitmap, description);
+                return true;
             }
             catch (Exception ex)
             {
-                Debug.WriteLine(ex.StackTrace);
+                Debug.WriteLine(ex);
+                MessageBox.Show(ex.Message, "画像の追加に失敗しました");
+                return false;
             }
         }
 

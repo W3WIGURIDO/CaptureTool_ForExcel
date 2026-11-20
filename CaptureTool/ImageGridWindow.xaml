@@ -11,10 +11,27 @@
             <RowDefinition/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
-        <ListView ItemsSource="{Binding Photos}" SelectionMode="Extended" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+        <ListView x:Name="photoListView" ItemsSource="{Binding Photos}" SelectionMode="Extended"
+                  ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+            <ListView.Style>
+                <Style TargetType="ListView">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding InlineMode}" Value="True">
+                            <Setter Property="IsTabStop" Value="False"/>
+                            <Setter Property="KeyboardNavigation.TabNavigation" Value="Continue"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </ListView.Style>
             <ListView.ItemContainerStyle>
                 <Style TargetType="ListViewItem">
                     <EventSetter Event="MouseLeftButtonUp" Handler="ListViewItem_MouseLeftButtonUp" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding DataContext.InlineMode, RelativeSource={RelativeSource AncestorType={x:Type ListView}}}"
+                                     Value="True">
+                            <Setter Property="IsTabStop" Value="False"/>
+                        </DataTrigger>
+                    </Style.Triggers>
                 </Style>
             </ListView.ItemContainerStyle>
             <ListView.ItemsPanel>
@@ -31,6 +48,52 @@
                                 <SolidColorBrush Color="White" Opacity="0.7" />
                             </TextBlock.Background>
                         </TextBlock>
+                        <Grid Visibility="{Binding DataContext.LegacyVisibility, RelativeSource={RelativeSource AncestorType={x:Type Window}}}"
+                              VerticalAlignment="Bottom" Height="40">
+                            <TextBlock Text="{Binding Description}" ToolTip="{Binding Description}"
+                                       Visibility="{Binding CaptionVisibility}" TextTrimming="CharacterEllipsis"
+                                       Background="#DDFFFFFF" HorizontalAlignment="Stretch" VerticalAlignment="Bottom"
+                                       Margin="2,0,78,2" MaxHeight="38"/>
+                            <Button Content="説明編集" Visibility="{Binding CaptionVisibility}"
+                                    Click="EditDescriptionButton_Click" HorizontalAlignment="Right"
+                                    VerticalAlignment="Bottom" Margin="2"/>
+                        </Grid>
+                        <Border Visibility="{Binding DataContext.InlineVisibility, RelativeSource={RelativeSource AncestorType={x:Type Window}}}"
+                                Background="#F5FFFFFF" VerticalAlignment="Bottom" Height="78"
+                                Margin="2" Padding="3">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBox Text="{Binding DraftDescription, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         AcceptsReturn="True" AcceptsTab="False"
+                                         TextWrapping="Wrap" MaxLength="32767"
+                                         VerticalScrollBarVisibility="Auto"
+                                         ToolTip="Tab／Shift+Tabで説明欄を移動。Ctrl+Enterで確定、Escで取り消し。"
+                                         LostKeyboardFocus="InlineDescription_LostKeyboardFocus"
+                                         PreviewKeyDown="InlineDescription_PreviewKeyDown"/>
+                                <TextBlock Grid.Row="1" Text="{Binding StatusText}" ToolTip="{Binding StatusDetail}"
+                                           FontSize="10" MinHeight="15">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Foreground" Value="#555555"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding StatusText}" Value="保存失敗（再試行できます）">
+                                                    <Setter Property="Foreground" Value="DarkRed"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding StatusText}" Value="未反映（再試行できます）">
+                                                    <Setter Property="Foreground" Value="DarkRed"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding StatusText}" Value="画像が変更されました">
+                                                    <Setter Property="Foreground" Value="DarkRed"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Grid>
+                        </Border>
                         <CheckBox Visibility="{Binding CheckBoxVisibility}" IsChecked="{Binding CheckBoxIsChecked}" HorizontalAlignment="Left" VerticalAlignment="Top">
                             <CheckBox.Content>
                                 <Grid>

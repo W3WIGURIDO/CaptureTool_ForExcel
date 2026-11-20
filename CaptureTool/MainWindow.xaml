@@ -158,6 +158,18 @@
                         ToolTip="入力した開始行と空白行数をキャプチャ・画像追加に反映"/>
             </WrapPanel>
             <WrapPanel Margin="0,5,0,0">
+                <CheckBox x:Name="enableImageDescriptionsCheckBox" Content="画像直上に説明セルを確保"
+                          IsChecked="{Binding EnableImageDescriptions}"
+                          Checked="EnableImageDescriptions_Changed" Unchecked="EnableImageDescriptions_Changed"
+                          ToolTip="開始行2以上・空白行1以上。A1管理の旧方式では開始行3以上。"/>
+                <TextBlock Text="次の画像の説明（空欄でも後から編集可能）" Margin="10,0,5,0"
+                           VerticalAlignment="Center"/>
+                <TextBox x:Name="nextImageDescriptionTextBox" Width="300" Height="45"
+                         AcceptsReturn="True" TextWrapping="Wrap"
+                         VerticalScrollBarVisibility="Auto" MaxLength="32767"
+                         IsEnabled="{Binding EnableImageDescriptions}"/>
+            </WrapPanel>
+            <WrapPanel Margin="0,5,0,0">
                 <TextBlock Text="画像 次回挿入行（選択シート）"/>
                 <TextBox x:Name="nextInsertRowTextBox" Grid.Column="1"
                          Text="{Binding Row, Mode=OneWay}" LostFocus="NextInsertRowTextBox_LostFocus"
@@ -286,6 +298,14 @@
                 <CheckBox IsChecked="{Binding AutoSetWorkSheetName}" VerticalAlignment="Center" Margin="0,0,5,0"/>
                 <TextBlock Text="画像一覧自動更新"/>
                 <CheckBox IsChecked="{Binding EnableImageGridSourceAutoUpdate}" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                <TextBlock Text="一覧の説明表示" VerticalAlignment="Center"/>
+                <ComboBox x:Name="imageListDisplayModeSelect" Width="125" Margin="3,0,8,0"
+                          SelectedIndex="{Binding ImageListDisplayModeIndex, Mode=TwoWay}"
+                          SelectionChanged="ImageListDisplayModeSelect_SelectionChanged"
+                          ToolTip="従来の編集ボタン／一覧内の直接入力を切り替え">
+                    <ComboBoxItem Content="従来表示"/>
+                    <ComboBoxItem Content="直接編集"/>
+                </ComboBox>
                 <TextBlock Text="自動保存"/>
                 <CheckBox x:Name="EnableWorkBookAutoSaveCheckBox" IsChecked="{Binding EnableWorkBookAutoSave}" VerticalAlignment="Center" Margin="0,0,5,0" Checked="EnableWorkBookAutoSaveCheckBox_Checked" Unchecked="EnableWorkBookAutoSaveCheckBox_Checked" ToolTip="ワークブックの自動保存を行うかどうか"/>
             </WrapPanel>

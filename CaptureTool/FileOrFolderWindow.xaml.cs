@@ -27,11 +27,13 @@ namespace CaptureTool
         private Settings settings;
         private BridgeClosedXML closedXML;
         private bool imageReaded = false;
-        public FileOrFolderWindow(Settings settings, BridgeClosedXML bridgeClosedXML)
+        private readonly string firstImageDescription;
+        public FileOrFolderWindow(Settings settings, BridgeClosedXML bridgeClosedXML, string firstImageDescription = null)
         {
             InitializeComponent();
             this.settings = settings;
             this.closedXML = bridgeClosedXML;
+            this.firstImageDescription = firstImageDescription;
         }
 
         private void fileSelectButton_Click(object sender, RoutedEventArgs e)
@@ -44,9 +46,8 @@ namespace CaptureTool
             };
             if (ofd.ShowDialog() == true)
             {
-                closedXML.AddImageFromFile(ofd.FileName);
+                imageReaded = closedXML.AddImageFromFile(ofd.FileName, firstImageDescription);
             }
-            imageReaded = true;
             Close();
         }
 
@@ -63,10 +64,10 @@ namespace CaptureTool
                 if (cofd.ShowDialog() != CommonFileDialogResult.Ok)
                 {
                     Close();
+                    return;
                 }
 
-                closedXML.AddImageFromFolder(cofd.FileName);
-                imageReaded = true;
+                imageReaded = closedXML.AddImageFromFolder(cofd.FileName, firstImageDescription) > 0;
                 Close();
             }
         }
