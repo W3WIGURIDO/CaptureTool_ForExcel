@@ -53,6 +53,8 @@ namespace CaptureTool
             imageGridWindow == null ? new ImageGridWindow[0] : new[] { imageGridWindow };
         private int appliedImageListDisplayModeIndex;
         private bool visibleAddSheetWindow = false;
+        private double mainPageHeight = 375;
+        private bool excelSettingsVisited;
 
         private Task _workbookQueue = Task.FromResult(0);
         private bool _closingRequested;
@@ -218,7 +220,7 @@ namespace CaptureTool
             return !_workbookQueue.IsCompleted ||
                    (closedXML != null && (closedXML.ModFlag || closedXML.HasPendingFileLock)) ||
                    _saveWaitCancelled ||
-                   (startRowTextBox != null &&
+                   (excelSettingsVisited &&
                     (startRowTextBox.Text != settings.StartRow.ToString() ||
                      imageGapRowsTextBox.Text != settings.ImageGapRows.ToString())) ||
                    (settings.EnableImageDescriptions &&
@@ -390,6 +392,41 @@ namespace CaptureTool
             }
         }
 
+        private void OpenSettings_Click(object sender, RoutedEventArgs e)
+        {
+            if (settingsView.Visibility == Visibility.Visible) return;
+            mainPageHeight = Height;
+            mainView.Visibility = Visibility.Collapsed;
+            settingsView.Visibility = Visibility.Visible;
+            if (WindowState == WindowState.Normal)
+                Height = Math.Max(Height, 610);
+            settingsTabs.SelectedIndex = 0;
+        }
+
+        private void ShowExcelSettings_Click(object sender, RoutedEventArgs e)
+        {
+            OpenSettings_Click(sender, e);
+            settingsTabs.SelectedIndex = 1;
+        }
+
+        private void CloseSettings_Click(object sender, RoutedEventArgs e)
+        {
+            if (settingsView.Visibility != Visibility.Visible) return;
+            settingsView.Visibility = Visibility.Collapsed;
+            mainView.Visibility = Visibility.Visible;
+            if (WindowState == WindowState.Normal)
+                Height = Math.Max(MinHeight, mainPageHeight);
+            if (!isNoFileMode && closedXML != null && closedXML.HasWorkbook)
+                ResetHotKey(); // 設定画面のキー変更を作業画面へ戻る時点で反映
+            openSettingsButton.Focus();
+        }
+
+        private void SettingsTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (sender is TabControl tab && tab.SelectedIndex == 1)
+                excelSettingsVisited = true;
+        }
+
         private void StartHotKey()
         {
             windowHotKey = new HotKey(EnumScan.FlagToMOD_KEY(settings.PreKey), settings.Key) { HotKeyName = WindowCapture };
@@ -426,11 +463,19 @@ namespace CaptureTool
         private void UpdateMainSaveStatus()
         {
             if (mainSaveStatusText == null) return;
+            string filePath = settings.FileName;
+            bookNameLabel.Text = string.IsNullOrEmpty(filePath)
+                ? "ブック未選択" : System.IO.Path.GetFileName(filePath);
+            bookNameLabel.ToolTip = filePath;
+            captureKeysHintText.Text = string.Format(
+                "撮影キー：ウィンドウ {0}+{1} ／ 画面 {2}+{3}",
+                settings.PreKeyText, settings.KeyText,
+                settings.ScreenPreKeyText, settings.ScreenKeyText);
             var photos = OpenImageGridWindows.SelectMany(grid => grid.Photos).ToArray();
             int drafts = photos.Count(photo => photo.HasDirtyDescription);
             bool unusedNextDescription = settings.EnableImageDescriptions &&
                 !string.IsNullOrWhiteSpace(nextImageDescriptionTextBox?.Text);
-            bool layoutNotApplied = startRowTextBox != null &&
+            bool layoutNotApplied = excelSettingsVisited &&
                 (startRowTextBox.Text != settings.StartRow.ToString() ||
                  imageGapRowsTextBox.Text != settings.ImageGapRows.ToString());
             var failure = photos.FirstOrDefault(photo => photo.HasDirtyDescription &&
@@ -494,7 +539,13 @@ namespace CaptureTool
                     ? nextImageDescriptionTextBox.Text : null;
                 Window targetWindow = miniWindow ?? (Window)this;
                 bool hideWindow = screenCapture || MainProcess.GetForegroundWindow().Equals(Handle);
-                var positionSet = (PositionSet)positionSelect.SelectedValue;
+                int positionIndex = Math.Max(0, Math.Min(settings.PositionIndex,
+                    settings.ViewPosition.Count - 1));
+                var positionSet = settings.ViewPosition.Values.ElementAt(positionIndex);
+                int pixelIndex = Math.Max(0, Math.Min(settings.PixelFormatIndex,
+                    settings.PixelFormats.Count - 1));
+                var pixelFormat = settings.PixelFormats.Keys.ElementAt(pixelIndex);
+                int captureMode = Math.Max(0, Math.Min(settings.CaptureModeIndex, 2));
 
                 try
                 {
@@ -514,11 +565,11 @@ namespace CaptureTool
                         screenFlag: screenCapture,
                         aero: settings.EnableAero == true,
                         enableCursor: settings.EnableCursor == true,
-                        captureMode: (int)captureModeSelect.SelectedValue,
+                        captureMode: captureMode,
                         imageGridWidth: settings.OverlayX,
                         imageGridHeight: settings.OverlayY,
                         enableSetArrow: settings.EnableSetArrow == true,
-                        pixelFormat: (System.Drawing.Imaging.PixelFormat)pixelFormatSelect.SelectedValue,
+                        pixelFormat: pixelFormat,
                         description: draftDescription);
                     if (captured)
                     {
@@ -685,7 +736,7 @@ namespace CaptureTool
         {
             if (e.Key == Key.Enter)
             {
-                if (TryCommitNextInsertRow(true)) saveButton.Focus();
+                if (TryCommitNextInsertRow(true)) viewImageListButton.Focus();
                 e.Handled = true;
             }
         }
@@ -733,6 +784,9 @@ namespace CaptureTool
 
         private bool TryApplyImageLayout()
         {
+            // TabItem内の未表示TextBoxは遅延ロードされる場合がある。
+            // Excel出力タブを開いていなければ、検証済みの現在設定を使用する。
+            if (!excelSettingsVisited) return true;
             if (!int.TryParse(startRowTextBox.Text, out int startRow) ||
                 startRow < 1 || startRow > 1048576)
             {
@@ -845,7 +899,10 @@ namespace CaptureTool
 
         private void InvisibleButton_GotFocus(object sender, RoutedEventArgs e)
         {
-            saveButton.Focus();
+            if (settingsView.Visibility == Visibility.Visible)
+                saveButton.Focus();
+            else
+                viewImageListButton.Focus();
         }
 
         private void Window_StateChanged(object sender, EventArgs e)
