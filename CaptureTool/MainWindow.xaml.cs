@@ -956,7 +956,13 @@ namespace CaptureTool
         {
             EnqueueWorkbookOperation(() =>
             {
-                if (OpenImageGridWindows.Any(grid => !CommitGridDescriptionsCore(grid)))
+                bool descriptionsCommitted = OpenImageGridWindows.All(CommitGridDescriptionsCore);
+                if (!descriptionsCommitted &&
+                    MessageBox.Show(this,
+                        "一覧に反映できていない説明があります。未反映の説明を含まずに別名保存しますか？" +
+                        "\n編集中の説明は一覧に残ります。",
+                        "説明は未反映", MessageBoxButton.YesNo, MessageBoxImage.Warning,
+                        MessageBoxResult.No) != MessageBoxResult.Yes)
                     return;
                 string previousPath = settings.FileName;
                 if (ExcelOpenWindow.ExcelFileSaveAs(this, settings))
@@ -1547,11 +1553,13 @@ namespace CaptureTool
         private async void saveWorkBookButton_Click(object sender, RoutedEventArgs e)
         {
             bool saved = false;
+            bool descriptionsCommitted = true;
             await EnqueueWorkbookOperation(() =>
             {
                 _saveWaitCancelled = false;
-                if (OpenImageGridWindows.Any(grid => !CommitGridDescriptionsCore(grid)))
-                    return;
+                // 反映できない説明が残っても、ブック自体の保存・ロック再試行を妨げない。
+                // 編集中の文字列は一覧に保持し、ブックへ保存済みとは表示しない。
+                descriptionsCommitted = OpenImageGridWindows.All(CommitGridDescriptionsCore);
                 try
                 {
                     closedXML.ManualSave();
@@ -1567,7 +1575,8 @@ namespace CaptureTool
                 closedXML.ModFlag || _saveWaitCancelled)
                 return;
 
-            new OverlayDialog("上書き保存完了") { Owner = this }.Show();
+            new OverlayDialog(descriptionsCommitted
+                ? "上書き保存完了" : "保存済／説明未反映") { Owner = this }.Show();
         }
 
         private bool ShowNonSaveMessage()
