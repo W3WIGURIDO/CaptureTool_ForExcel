@@ -59,6 +59,11 @@ namespace CaptureTool
         private bool _closeApproved;
         private bool _saveWaitCancelled;
         private int _saveCancelGeneration;
+        private bool _discardOnClose;
+        private System.Threading.CancellationTokenSource _activeSaveWaitCancellation;
+        private readonly System.Windows.Threading.DispatcherTimer _saveStatusTimer =
+            new System.Windows.Threading.DispatcherTimer
+            { Interval = TimeSpan.FromMilliseconds(700) };
 
         // UI スレッド上でブック操作を順番に実行する。Task.Yield により
         // ダイアログがメッセージループを回す前に _workbookQueue を更新できる。
@@ -96,11 +101,13 @@ namespace CaptureTool
                     (_saveWaitCancelled && !allowWhenSaveCancelled))
                     return;
                 await operation();
-                if (closedXML != null && closedXML.HasPendingFileLock && !_saveWaitCancelled)
+                if (closedXML != null && closedXML.HasPendingFileLock &&
+                    !_saveWaitCancelled && !_discardOnClose)
                     await WaitForFileUnlockAsync();
                 else if (closedXML != null && !closedXML.ModFlag)
                     _saveWaitCancelled = false;
                 RefreshImageGridSaveStatuses();
+                UpdateMainSaveStatus();
             }
             catch (Exception ex)
             {
@@ -110,8 +117,10 @@ namespace CaptureTool
                     _saveCancelGeneration++;
                 }
                 Debug.WriteLine(ex);
-                MessageBox.Show(this, ex.Message, "ブック操作エラー",
-                    MessageBoxButton.OK, MessageBoxImage.Error);
+                UpdateMainSaveStatus();
+                if (!_discardOnClose)
+                    MessageBox.Show(this, ex.Message, "ブック操作エラー",
+                        MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -120,6 +129,7 @@ namespace CaptureTool
             SaveLockWaitWindow waitWindow = null;
             using (var cancellation = new System.Threading.CancellationTokenSource())
             {
+                _activeSaveWaitCancellation = cancellation;
                 try
                 {
                     // 短いロックは表示を出さず、１回だけ静かに再試行する。
@@ -155,11 +165,14 @@ namespace CaptureTool
                 }
                 finally
                 {
+                    if (ReferenceEquals(_activeSaveWaitCancellation, cancellation))
+                        _activeSaveWaitCancellation = null;
                     if (waitWindow != null)
                         waitWindow.CloseAfterWait();
+                    UpdateMainSaveStatus();
                 }
             }
-            if (_saveWaitCancelled)
+            if (_saveWaitCancelled && !_discardOnClose)
             {
                 string message = "保存待機を中止しました。ブックは未保存のまま保持しています。\n" +
                     "待機中のキャプチャ要求は実行しません。手動保存または別名保存をしてください。";
@@ -200,74 +213,181 @@ namespace CaptureTool
             }
         }
 
+        private bool HasPendingExitChanges()
+        {
+            return !_workbookQueue.IsCompleted ||
+                   (closedXML != null && (closedXML.ModFlag || closedXML.HasPendingFileLock)) ||
+                   _saveWaitCancelled ||
+                   (startRowTextBox != null &&
+                    (startRowTextBox.Text != settings.StartRow.ToString() ||
+                     imageGapRowsTextBox.Text != settings.ImageGapRows.ToString())) ||
+                   (settings.EnableImageDescriptions &&
+                    !string.IsNullOrWhiteSpace(nextImageDescriptionTextBox?.Text)) ||
+                   OpenImageGridWindows.Any(grid => grid.Photos.Any(photo =>
+                       photo.HasDirtyDescription || photo.IsCommitPending));
+        }
+
+        // 終了だけは編集内容を破棄できる。ブック切替時の厳格な保護は維持する。
         private async void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
-            if (!_closeApproved)
+            if (_closeApproved)
             {
-                e.Cancel = true;
-                if (_closingRequested)
-                    return;
-
-                _closingRequested = true; // 新しいホットキー・ブック操作を受け付けない
-                await Task.Yield(); // 元の Closing イベントが戻ってから閉じ直す
-                try
+                _saveStatusTimer.Stop();
+                DisposeHotKeys();
+                if (notifyIcon != null)
                 {
-                    await _workbookQueue; // 受付済みの保存・キャプチャを最後まで待つ
-                    if (OpenImageGridWindows.Any(grid => !CommitGridDescriptionsCore(grid)))
-                    {
-                        _closingRequested = false;
-                        MessageBox.Show(this, "一覧に未反映の説明があります。該当項目の表示を確認してください。",
-                            "終了を中止しました", MessageBoxButton.OK, MessageBoxImage.Warning);
-                        return;
-                    }
-                    if (closedXML != null && closedXML.HasPendingFileLock)
-                        await WaitForFileUnlockAsync();
-                    RefreshImageGridSaveStatuses();
-                    if (_saveWaitCancelled)
-                    {
-                        _closingRequested = false;
-                        return;
-                    }
-                    if (!TryApplyImageLayout())
-                    {
-                        _closingRequested = false;
-                        return;
-                    }
-                    if (closedXML != null && closedXML.ModFlag && !ShowNonSaveMessage())
-                    {
-                        if (closedXML.HasPendingFileLock)
-                            await WaitForFileUnlockAsync();
-                        if (closedXML.ModFlag)
-                        {
-                            _closingRequested = false;
-                            return;
-                        }
-                    }
-
-                    if (settings.EnableAutoSave == true)
-                        settings.SaveSettings();
-
-                    _closeApproved = true;
-                    Close();
+                    notifyIcon.Dispose();
+                    notifyIcon = null;
                 }
-                catch (Exception ex)
+                if (_discardOnClose)
                 {
-                    _closeApproved = false;
-                    _closingRequested = false;
-                    MessageBox.Show(this, ex.Message, "終了エラー",
-                        MessageBoxButton.OK, MessageBoxImage.Error);
+                    // 保存せず終了：一覧の反映・保存を呼ばない。
+                    foreach (var grid in OpenImageGridWindows)
+                        grid.AllowCloseAfterCommit();
+                    imageGridWindow = null;
                 }
+                else
+                    CloseImageGridWindows();
+                closedXML?.UnloadWorkBook();
                 return;
             }
 
-            DisposeHotKeys();
-            if (notifyIcon != null)
+            e.Cancel = true;
+            if (_closingRequested) return;
+            _closingRequested = true;
+            if (imageGridWindow != null)
+                imageGridWindow.IsEnabled = false; // ダイアログ中に説明を変更させない
+            await Task.Yield();
+            try
             {
-                notifyIcon.Dispose();
-                notifyIcon = null;
+                while (true)
+                {
+                    UpdateMainSaveStatus();
+                    ExitDecision decision = HasPendingExitChanges()
+                        ? new UnsavedExitDialog(mainSaveStatusText.Text) { Owner = this }.Ask()
+                        : ExitDecision.SaveAndClose;
+                    if (decision == ExitDecision.Cancel) return;
+                    if (decision == ExitDecision.Discard)
+                    {
+                        if (MessageBox.Show(this,
+                            "ブックの未保存の変更、未反映・未使用の説明、未適用の設定を" +
+                            "破棄して終了します。\nこの操作は取り消せません。よろしいですか？",
+                            "保存せず終了", MessageBoxButton.YesNo, MessageBoxImage.Warning,
+                            MessageBoxResult.No) != MessageBoxResult.Yes)
+                            continue;
+
+                        _discardOnClose = true;
+                        _saveCancelGeneration++; // 待機中のブック操作を再開させない
+                        _activeSaveWaitCancellation?.Cancel();
+                        await _workbookQueue; // 実行中の処理が終わってからブックを解放する
+                        _closeApproved = true;
+                        Close();
+                        return;
+                    }
+
+                    await _workbookQueue;
+                    if (_saveWaitCancelled && closedXML != null && closedXML.HasPendingFileLock)
+                    {
+                        MessageBox.Show(this,
+                            "保存待機は中止されています。ファイルを使用しているアプリを閉じて再試行するか、" +
+                            "保存せず終了を選択してください。",
+                            "保存待機中", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        continue;
+                    }
+
+                    if (!TryApplyImageLayout() &&
+                        MessageBox.Show(this,
+                            "入力中の配置設定は適用できません。設定の変更を破棄し、" +
+                            "ブックのみ保存して終了しますか？",
+                            "配置設定未適用", MessageBoxButton.YesNo, MessageBoxImage.Warning,
+                            MessageBoxResult.No) != MessageBoxResult.Yes)
+                        continue;
+
+                    if (OpenImageGridWindows.Any(grid => !CommitGridDescriptionsCore(grid)))
+                    {
+                        UpdateMainSaveStatus();
+                        MessageBox.Show(this,
+                            "一覧の説明をブックに反映できません。原因は一覧の該当項目に表示しています。" +
+                            "\n内容を保持したままキャンセルするか、破棄して終了できます。",
+                            "説明未反映", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        continue;
+                    }
+
+                    if (closedXML != null && closedXML.HasWorkbook)
+                    {
+                        try
+                        {
+                            _saveWaitCancelled = false;
+                            if (closedXML.ModFlag || closedXML.HasPendingFileLock ||
+                                !closedXML.HasSavedFile)
+                                closedXML.ManualSave();
+                            if (closedXML.HasPendingFileLock)
+                                await WaitForFileUnlockAsync();
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine(ex);
+                            MessageBox.Show(this, ex.Message, "保存失敗",
+                                MessageBoxButton.OK, MessageBoxImage.Error);
+                            continue;
+                        }
+                        if (_saveWaitCancelled || closedXML.ModFlag)
+                        {
+                            UpdateMainSaveStatus();
+                            MessageBox.Show(this,
+                                "ブックの保存は完了していません。再試行するか、保存せず終了を選択してください。",
+                                "ブック未保存", MessageBoxButton.OK, MessageBoxImage.Warning);
+                            continue;
+                        }
+                    }
+
+                    if (settings.EnableImageDescriptions &&
+                        !string.IsNullOrWhiteSpace(nextImageDescriptionTextBox?.Text) &&
+                        MessageBox.Show(this,
+                            "次の画像用の説明は、まだ画像に関連付いておらずExcelに保存できません。" +
+                            "\nこの入力を破棄して終了しますか？",
+                            "未使用の説明", MessageBoxButton.YesNo, MessageBoxImage.Warning,
+                            MessageBoxResult.No) != MessageBoxResult.Yes)
+                        return;
+
+                    if (settings.EnableAutoSave == true)
+                    {
+                        try { settings.SaveSettings(); }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine(ex);
+                            if (MessageBox.Show(this,
+                                "ブックは保存されましたが、設定を保存できませんでした。\n" +
+                                ex.Message + "\n設定を保存せずに終了しますか？",
+                                "設定の保存失敗", MessageBoxButton.YesNo, MessageBoxImage.Warning,
+                                MessageBoxResult.No) != MessageBoxResult.Yes)
+                                return;
+                        }
+                    }
+
+                    _closeApproved = true;
+                    Close();
+                    return;
+                }
             }
-            CloseImageGridWindows();
-            closedXML?.UnloadWorkBook();
+            catch (Exception ex)
+            {
+                _closeApproved = false;
+                _discardOnClose = false;
+                Debug.WriteLine(ex);
+                MessageBox.Show(this, ex.Message, "終了エラー",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                if (!_closeApproved)
+                {
+                    _closingRequested = false;
+                    if (imageGridWindow != null)
+                        imageGridWindow.IsEnabled = true;
+                    UpdateMainSaveStatus();
+                }
+            }
         }
 
         private void StartHotKey()
@@ -303,8 +423,55 @@ namespace CaptureTool
             }
         }
 
+        private void UpdateMainSaveStatus()
+        {
+            if (mainSaveStatusText == null) return;
+            var photos = OpenImageGridWindows.SelectMany(grid => grid.Photos).ToArray();
+            int drafts = photos.Count(photo => photo.HasDirtyDescription);
+            bool unusedNextDescription = settings.EnableImageDescriptions &&
+                !string.IsNullOrWhiteSpace(nextImageDescriptionTextBox?.Text);
+            bool layoutNotApplied = startRowTextBox != null &&
+                (startRowTextBox.Text != settings.StartRow.ToString() ||
+                 imageGapRowsTextBox.Text != settings.ImageGapRows.ToString());
+            var failure = photos.FirstOrDefault(photo => photo.HasDirtyDescription &&
+                (photo.StatusText.StartsWith("保存失敗", StringComparison.Ordinal) ||
+                 photo.StatusText.StartsWith("未反映", StringComparison.Ordinal)));
+            bool pending = closedXML != null && closedXML.HasPendingFileLock;
+            bool modified = closedXML != null && closedXML.ModFlag;
+            string status = closedXML == null || !closedXML.HasWorkbook ? "ブックなし" :
+                _saveWaitCancelled ? "保存待機を中止・ブック未保存" :
+                pending ? "ファイル使用中・保存待機中" :
+                modified ? "ブック未保存" :
+                !_workbookQueue.IsCompleted ? "ブック操作中" : "ブック保存済み";
+            if (drafts > 0)
+                status += string.Format(" ／ 説明未反映 {0}件", drafts);
+            if (unusedNextDescription)
+                status += " ／ 次の画像説明は未使用";
+            if (layoutNotApplied)
+                status += " ／ 配置設定が未適用";
+            if (_closingRequested)
+                status += " ／ 終了処理中";
+            mainSaveStatusText.Text = status;
+            mainSaveStatusText.ToolTip = failure != null
+                ? "説明を反映できません：" + failure.StatusDetail +
+                  "。一覧画面に編集中の文字列は残っています。"
+                : _saveWaitCancelled ? "保存待機は中止されました。手動保存または別名保存で再試行できます。"
+                : pending ? "Excelファイルのロック解除を待っています。待機を中止してもブックはメモリ上に残ります。"
+                : modified || drafts > 0 || unusedNextDescription || layoutNotApplied
+                    ? "ブック、画像一覧、または設定の入力に未保存・未適用の変更があります。"
+                    : "表示しているブックの保存状態です。";
+            mainSaveStatusText.Foreground = failure != null || _saveWaitCancelled
+                ? System.Windows.Media.Brushes.DarkRed
+                : pending || modified || drafts > 0 || unusedNextDescription || layoutNotApplied
+                    ? System.Windows.Media.Brushes.DarkOrange
+                    : System.Windows.Media.Brushes.DarkGreen;
+        }
+
         private void Window_Loaded(object sender, RoutedEventArgs e)
         {
+            _saveStatusTimer.Tick += (timerSender, args) => UpdateMainSaveStatus();
+            _saveStatusTimer.Start();
+            UpdateMainSaveStatus();
             StartHotKey();
             //loadFinished = true;
             WorkSheetSelect.SelectionChanged += WorkSheetSelect_SelectionChanged;
@@ -336,6 +503,7 @@ namespace CaptureTool
                         targetWindow.Visibility = Visibility.Hidden;
                         await Task.Delay(200); // UI スレッドは待機中も操作可能
                     }
+                    if (_closingRequested || _discardOnClose) return;
 
                     // 画像の追加から自動保存の完了まで、この処理列の１件として実行する。
                     bool captured = MainProcess.CaptureScreen(closedXML,
@@ -1758,4 +1926,68 @@ namespace CaptureTool
             });
         }
     }
+    internal enum ExitDecision { Cancel, SaveAndClose, Discard }
+
+    // メッセージボックスの「はい/いいえ」では破棄対象が分かりにくいため、選択肢を明記する。
+    internal sealed class UnsavedExitDialog : Window
+    {
+        public ExitDecision Choice { get; private set; } = ExitDecision.Cancel;
+
+        public UnsavedExitDialog(string status)
+        {
+            Title = "アプリケーションの終了";
+            Width = 540;
+            Height = 185;
+            MinWidth = 470;
+            ResizeMode = ResizeMode.NoResize;
+            WindowStartupLocation = WindowStartupLocation.CenterOwner;
+            ShowInTaskbar = false;
+            Topmost = true; // 保存待機ウィンドウが表示中でも終了方法を選択できる
+
+            var panel = new StackPanel { Margin = new Thickness(16) };
+            panel.Children.Add(new TextBlock
+            {
+                Text = "未保存または処理中の内容があります。終了方法を選んでください。",
+                TextWrapping = TextWrapping.Wrap
+            });
+            panel.Children.Add(new TextBlock
+            {
+                Text = status ?? string.Empty,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 10, 0, 12)
+            });
+            var actions = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right
+            };
+            var save = new Button
+            {
+                Content = "保存して終了", MinWidth = 105,
+                Margin = new Thickness(0, 0, 8, 0)
+            };
+            save.Click += (s, e) => { Choice = ExitDecision.SaveAndClose; DialogResult = true; };
+            actions.Children.Add(save);
+            var discard = new Button
+            {
+                Content = "保存せず終了", MinWidth = 115,
+                Margin = new Thickness(0, 0, 8, 0)
+            };
+            discard.Click += (s, e) => { Choice = ExitDecision.Discard; DialogResult = true; };
+            actions.Children.Add(discard);
+            actions.Children.Add(new Button
+            {
+                Content = "キャンセル", MinWidth = 85, IsCancel = true, IsDefault = true
+            });
+            panel.Children.Add(actions);
+            Content = panel;
+        }
+
+        public ExitDecision Ask()
+        {
+            ShowDialog();
+            return Choice;
+        }
+    }
+
 }
