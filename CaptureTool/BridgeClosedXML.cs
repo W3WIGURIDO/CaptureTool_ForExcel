@@ -8,6 +8,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using System.Windows;
 
 namespace CaptureTool
@@ -18,6 +19,19 @@ namespace CaptureTool
         private XLWorkbook workbook;
         private IXLWorksheet worksheet;
         private const int MaxRow = 1048576;
+        // 年号や長い連番の途中を試験番号と誤認しない。
+        private static readonly Regex TestNumberInBookName = new Regex(
+            @"(?<![0-9A-Za-z])(?<![0-9]-)[0-9]{1,3}(?:-[0-9]{1,3}){2,}(?![0-9]|-[0-9])",
+            RegexOptions.CultureInvariant);
+
+        private static string GetFirstWorksheetName(string fileName)
+        {
+            string baseName = Path.GetFileNameWithoutExtension(fileName ?? string.Empty);
+            Match candidate = TestNumberInBookName.Match(baseName ?? string.Empty);
+            // 使える番号がない場合は従来の初期名を維持する。
+            return candidate.Success && candidate.Value.Length <= 31
+                ? candidate.Value : "エビデンス";
+        }
         // シートオブジェクトの存続期間中だけ利用。名前や表示順はキーにしない。
         private readonly Dictionary<IXLWorksheet, int> bottomRowCache = new Dictionary<IXLWorksheet, int>();
         private readonly Dictionary<IXLWorksheet, int> oneShotRows = new Dictionary<IXLWorksheet, int>();
@@ -631,7 +645,8 @@ namespace CaptureTool
             {
                 // 新規ブック自体は保存先ファイルが使えなくても作成する。
                 nextWorkbook = new XLWorkbook();
-                nextWorksheet = nextWorkbook.Worksheets.Add("エビデンス");
+                nextWorksheet = nextWorkbook.Worksheets.Add(
+                    GetFirstWorksheetName(settings.FileName));
                 nextWorksheet.Cell(settings.StartRow, 1).Select();
                 nextSheets = nextWorkbook.Worksheets.OrderBy(ws => ws.Position)
                     .ToDictionary(ws => ws.Position, ws => ws.Name);
