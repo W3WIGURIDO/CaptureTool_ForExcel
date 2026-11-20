@@ -626,7 +626,13 @@ namespace CaptureTool
             }
         }
 
-        private readonly Dictionary<int, string> _CaptureModes = new Dictionary<int, string>() { { 0, "Mode0" }, { 1, "Mode1(デフォルト)" }, { 2, "Mode2" } };
+        // 表示名だけ変更。キー(0/1/2)と設定ファイルのCaptureModeIndexは維持。
+        private readonly Dictionary<int, string> _CaptureModes = new Dictionary<int, string>()
+        {
+            { 0, "PrintWindow（ウィンドウ描画）" },
+            { 1, "CopyFromScreen（画面取得）(デフォルト)" },
+            { 2, "BitBlt（GDI直接取得）" }
+        };
         public Dictionary<int, string> CaptureModes
         {
             get => _CaptureModes;

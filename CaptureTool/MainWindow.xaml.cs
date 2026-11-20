@@ -53,7 +53,7 @@ namespace CaptureTool
             imageGridWindow == null ? new ImageGridWindow[0] : new[] { imageGridWindow };
         private int appliedImageListDisplayModeIndex;
         private bool visibleAddSheetWindow = false;
-        private double mainPageHeight = 375;
+        private double mainPageHeight = 330;
         private bool excelSettingsVisited;
 
         private Task _workbookQueue = Task.FromResult(0);
@@ -399,7 +399,8 @@ namespace CaptureTool
             mainView.Visibility = Visibility.Collapsed;
             settingsView.Visibility = Visibility.Visible;
             if (WindowState == WindowState.Normal)
-                Height = Math.Max(Height, 610);
+                Height = Math.Min(Math.Max(Height, 610),
+                    Math.Max(MinHeight, SystemParameters.WorkArea.Height - 24));
             settingsTabs.SelectedIndex = 0;
         }
 
@@ -512,12 +513,37 @@ namespace CaptureTool
                     : System.Windows.Media.Brushes.DarkGreen;
         }
 
+        // 作業画面の初回表示時だけ実コンテンツを測る。
+        // SizeToContentを常用すると保存状態の更新や設定ページ表示で高さが揺れるため使用しない。
+        private void FitInitialMainHeight()
+        {
+            if (!IsLoaded || WindowState != WindowState.Normal ||
+                mainView.Visibility != Visibility.Visible || mainView.ActualWidth <= 0)
+                return;
+
+            mainView.Measure(new Size(mainView.ActualWidth, double.PositiveInfinity));
+            double mainHeight = mainView.DesiredSize.Height;
+            if (double.IsNaN(mainHeight) || double.IsInfinity(mainHeight))
+                return;
+
+            double chromeAndMargin = Math.Max(0, ActualHeight - rootLayout.ActualHeight);
+            // ステータスが2行になってもウィンドウが伸び縮みしないよう余白を確保。
+            double statusHeight = Math.Max(38,
+                mainStatusPanel.ActualHeight + mainStatusPanel.Margin.Top);
+            double desired = mainHeight + statusHeight + chromeAndMargin + 8;
+            double maximum = Math.Max(MinHeight, SystemParameters.WorkArea.Height - 24);
+            Height = Math.Max(MinHeight, Math.Min(desired, maximum));
+            mainPageHeight = Height;
+        }
+
         private void Window_Loaded(object sender, RoutedEventArgs e)
         {
             _saveStatusTimer.Tick += (timerSender, args) => UpdateMainSaveStatus();
             _saveStatusTimer.Start();
             UpdateMainSaveStatus();
             StartHotKey();
+            Dispatcher.BeginInvoke(new Action(FitInitialMainHeight),
+                System.Windows.Threading.DispatcherPriority.Loaded);
             //loadFinished = true;
             WorkSheetSelect.SelectionChanged += WorkSheetSelect_SelectionChanged;
             if (closedXML != null && closedXML.HasPendingFileLock)

@@ -4,36 +4,39 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
-        Title="CaptureTool For Excel" Height="365" Width="640" MinHeight="325" MinWidth="590"
+        Title="CaptureTool For Excel" Height="330" Width="640" MinHeight="270" MinWidth="590"
         Closing="Window_Closing" Loaded="Window_Loaded"
         StateChanged="Window_StateChanged" IsVisibleChanged="Window_IsVisibleChanged">
-    <Grid Margin="8">
+    <Grid x:Name="rootLayout" Margin="8">
         <Grid.RowDefinitions>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- 通常操作: Excelファイルの主要5ボタンはメニューに隠さない。 -->
+        <!-- ファイル5操作と設定は常に先頭の同じ行に表示。 -->
         <Grid x:Name="mainView" Grid.Row="0">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
-                <Grid Grid.Row="0" Margin="0,0,0,3">
-                    <TextBlock Text="CaptureTool  /  Excel" FontSize="14" FontWeight="Bold" VerticalAlignment="Center"/>
-                    <Button x:Name="openSettingsButton" Content="⚙ 設定" Click="OpenSettings_Click"
-                            HorizontalAlignment="Right" MinWidth="75" Padding="8,3"/>
-                </Grid>
-                <WrapPanel Grid.Row="1" Margin="0,2,0,5">
+            <Grid Grid.Row="0" Margin="0,0,0,5">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <WrapPanel Grid.Column="0" VerticalAlignment="Center">
                     <Button x:Name="openFileButton" Content="開く" Click="openFileButton_Click" MinHeight="29" Padding="7,3" Margin="0,1,4,1"/>
                     <Button x:Name="newFileButton" Content="新規作成" Click="newFileButton_Click" MinHeight="29" Padding="7,3" Margin="0,1,4,1"/>
                     <Button x:Name="saveWorkBookButton" Content="上書き保存" Click="saveWorkBookButton_Click" MinHeight="29" Padding="7,3" Margin="0,1,4,1"/>
                     <Button x:Name="saveAsButton" Content="名前を付けて保存" Click="saveAsButton_Click" MinHeight="29" Padding="7,3" Margin="0,1,4,1"/>
                     <Button x:Name="reopenFileButton" Content="開き直す" Click="reopenFileButton_Click" MinHeight="29" Padding="7,3" Margin="0,1,4,1"/>
                 </WrapPanel>
-            <StackPanel Grid.Row="2">
+                <Button x:Name="openSettingsButton" Grid.Column="1" Content="⚙ 設定"
+                        Click="OpenSettings_Click" Margin="4,1,0,1" MinWidth="75"
+                        Padding="7,3" VerticalAlignment="Top"/>
+            </Grid>
+            <StackPanel Grid.Row="1">
                 <Grid Margin="3,1,3,4">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
@@ -63,7 +66,7 @@
                     </Menu>
                 </WrapPanel>
             </StackPanel>
-            <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto"
+            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto"
                           HorizontalScrollBarVisibility="Disabled">
               <StackPanel>
                 <TextBlock Text="次の画像の説明（任意）" FontWeight="SemiBold" Margin="3,0,0,1"/>
@@ -186,7 +189,8 @@
                                         <TextBlock Text="キャプチャ方式" VerticalAlignment="Center" Margin="0,0,9,0"/>
                                         <ComboBox x:Name="captureModeSelect" SelectedIndex="{Binding CaptureModeIndex}"
                                                   ItemsSource="{Binding CaptureModes}" DisplayMemberPath="Value"
-                                                  SelectedValuePath="Key" Width="155"/>
+                                                  SelectedValuePath="Key" Width="260"
+                                                  ToolTip="PrintWindowはウィンドウ描画、CopyFromScreenは画面から取得、BitBltはGDIで直接転送します。"/>
                                     </WrapPanel>
                                     <CheckBox x:Name="enableAeroBox" Content="Aero 対応" IsChecked="{Binding EnableAero}"
                                               IsEnabled="{Binding DisableAero}" Margin="0,1,0,4"/>
@@ -394,7 +398,7 @@
             </DockPanel>
         </Grid>
 
-        <Border Grid.Row="1" BorderBrush="#D5DFE8" BorderThickness="0,1,0,0" Margin="0,5,0,0">
+        <Border x:Name="mainStatusPanel" Grid.Row="1" BorderBrush="#D5DFE8" BorderThickness="0,1,0,0" Margin="0,5,0,0">
             <TextBlock x:Name="mainSaveStatusText" Text="保存状態を確認中" TextWrapping="Wrap"
                        VerticalAlignment="Center" Margin="3,5,3,1"
                        ToolTip="ブック・説明セルの保存状況を表示します。"/>
