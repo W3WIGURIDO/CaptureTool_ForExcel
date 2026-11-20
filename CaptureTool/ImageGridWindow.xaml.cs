@@ -28,6 +28,8 @@ namespace CaptureTool
         private bool closeRequested;
         private bool isClosedForEditing;
         private Photo[] pendingPhotos;
+        private int photoSourceVersion;
+        public string ActiveSheetName { get; private set; }
         public bool IsClosedForEditing => isClosedForEditing;
         private readonly System.Windows.Threading.DispatcherTimer savedStatusTimer =
             new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
@@ -59,6 +61,22 @@ namespace CaptureTool
 
         public Photo[] Photos => imageGridSource.Photos ?? new Photo[0];
 
+        // シート変更時は旧シートの編集・画像を混ぜない。呼び出し元が先に未確定入力を反映する。
+        public void ShowSheet(string sheetName, Photo[] photos)
+        {
+            if (isClosedForEditing || string.IsNullOrEmpty(sheetName) || photos == null ||
+                photos.Any(p => p.Entry == null || p.Entry.SheetName != sheetName))
+                throw new InvalidOperationException("画像一覧のシート情報を更新できません。");
+            photoSourceVersion++;
+            pendingPhotos = null;
+            savedStatusTimer.Stop();
+            imagePopupGrid.Visibility = Visibility.Hidden;
+            imagePopup.Source = null;
+            imageGridSource.Photos = photos;
+            ActiveSheetName = sheetName;
+            Title = string.Format("シート：[{0}]の画像一覧", sheetName);
+        }
+
         private static bool SameImage(Photo left, Photo right)
         {
             var a = left.Entry;
@@ -71,7 +89,10 @@ namespace CaptureTool
 
         public void SetPhotos(Photo[] photos)
         {
-            if (photos == null || isClosedForEditing) return;
+            if (photos == null || isClosedForEditing ||
+                (ActiveSheetName != null &&
+                 photos.Any(p => p.Entry == null || p.Entry.SheetName != ActiveSheetName)))
+                return;
             // 配列を差し替えるとWPFがTextBoxを作り直す。入力中は最新の更新だけ保留する。
             if (Keyboard.FocusedElement is TextBox activeEditor &&
                 activeEditor.DataContext is Photo activePhoto && Photos.Contains(activePhoto))
@@ -141,9 +162,13 @@ namespace CaptureTool
             if (pendingPhotos != null)
             {
                 Photo[] latest = pendingPhotos;
+                int version = photoSourceVersion;
                 pendingPhotos = null;
-                Dispatcher.BeginInvoke(new Action(() => SetPhotos(latest)),
-                    System.Windows.Threading.DispatcherPriority.Background);
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (version == photoSourceVersion)
+                        SetPhotos(latest);
+                }), System.Windows.Threading.DispatcherPriority.Background);
             }
         }
 
@@ -237,8 +262,13 @@ namespace CaptureTool
 
         public void RenameSheet(string sheetName)
         {
-            foreach (var photo in imageGridSource.Photos ?? new Photo[0])
+            if (ActiveSheetName == null) return;
+            photoSourceVersion++;
+            pendingPhotos = null; // 旧名で作られた更新が後から実行されないようにする。
+            foreach (var photo in Photos)
                 if (photo.Entry != null) photo.Entry.SheetName = sheetName;
+            ActiveSheetName = sheetName;
+            Title = string.Format("シート：[{0}]の画像一覧", sheetName);
         }
 
         private void ShowImagePopup(Photo photo)

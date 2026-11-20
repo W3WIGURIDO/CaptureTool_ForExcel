@@ -483,6 +483,7 @@ namespace CaptureTool
         }
 
         public int CurrentWorksheetPosition => worksheet == null ? 0 : worksheet.Position;
+        public string CurrentWorksheetName => worksheet?.Name;
 
         public void ChangeSelectionWorkSheet(int position)
         {
