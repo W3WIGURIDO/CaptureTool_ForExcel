@@ -359,6 +359,27 @@
                           IsChecked="{Binding EnableImageDescriptions}"
                           Checked="EnableImageDescriptions_Changed" Unchecked="EnableImageDescriptions_Changed"
                           ToolTip="開始行2以上・空白行1以上。A1管理の旧方式では開始行3以上。"/>
+                            <WrapPanel Margin="0,7,0,4" VerticalAlignment="Center">
+                                <TextBlock Text="説明列 (A列) の幅" VerticalAlignment="Center"/>
+                                <TextBox x:Name="descriptionColumnWidthTextBox"
+                                         Text="{Binding DescriptionColumnWidth, Mode=OneWay}"
+                                         Width="55" Margin="8,0,8,0"
+                                         ToolTip="新しく作るシートのA列幅。15～100の整数。既存シートは自動変更しません。"/>
+                                <TextBlock Text="新規シート用（15～100）"
+                                           VerticalAlignment="Center" Foreground="#52677D"/>
+                            </WrapPanel>
+                            <WrapPanel Margin="0,2,0,3">
+                                <Button Content="選択中のシートのA列にも適用"
+                                        Click="ApplyDescriptionWidthToSheet_Click"
+                                        Margin="0,0,6,0" Padding="6,3"
+                                        ToolTip="現在のシートのA列全体が変更されます。確認後に実行します。"/>
+                                <Button Content="既存説明の折り返しを更新"
+                                        Click="ReformatDescriptions_Click"
+                                        Padding="6,3"
+                                        ToolTip="説明セルの改行有無に応じた表示形式をまとめて更新します。"/>
+                            </WrapPanel>
+                            <TextBlock Text="A列幅の変更は既存の表全体に影響します。行高は自動では縮めません。"
+                                       TextWrapping="Wrap" Foreground="#805316" Margin="0,0,0,4"/>
 
                             <TextBlock Text="行管理方式・互換性" FontWeight="Bold" Margin="0,12,0,3"/>
             <WrapPanel Margin="0,5,0,0" VerticalAlignment="Center">

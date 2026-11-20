@@ -337,6 +337,20 @@ namespace CaptureTool
             }
         }
 
+        // アプリが作る新しいシートの説明列(A)の幅。既存シートは自動変更しない。
+        private int _DescriptionColumnWidth = 50;
+        public int DescriptionColumnWidth
+        {
+            get => _DescriptionColumnWidth;
+            set
+            {
+                if (value < 15 || value > 100)
+                    throw new ArgumentOutOfRangeException(nameof(DescriptionColumnWidth));
+                _DescriptionColumnWidth = value;
+                RaisePropertyChanged();
+            }
+        }
+
         // 0=画像位置から算出（既定）、1=A1セルを使う従来方式
         private int _RowManagementModeIndex;
         public int RowManagementModeIndex
@@ -819,6 +833,9 @@ namespace CaptureTool
                 StartRow = startRow >= 1 && startRow <= 1048576 ? startRow : 1;
                 int gapRows = GetIntFromString(nameof(ImageGapRows), 1);
                 ImageGapRows = gapRows >= 0 && gapRows <= 1048575 ? gapRows : 1;
+                int descriptionWidth = GetIntFromString(nameof(DescriptionColumnWidth), 50);
+                DescriptionColumnWidth = descriptionWidth >= 15 && descriptionWidth <= 100
+                    ? descriptionWidth : 50;
                 int rowMode = GetIntFromString(nameof(RowManagementModeIndex), 0);
                 RowManagementModeIndex = rowMode == 1 ? 1 : 0;
 
@@ -892,6 +909,7 @@ namespace CaptureTool
                 new XElement(nameof(NumberCount), NumberCount.ToString()),
                 new XElement(nameof(StartRow), StartRow.ToString()),
                 new XElement(nameof(ImageGapRows), ImageGapRows.ToString()),
+                new XElement(nameof(DescriptionColumnWidth), DescriptionColumnWidth.ToString()),
                 new XElement(nameof(RowManagementModeIndex), RowManagementModeIndex.ToString()),
                 new XElement(nameof(EnableRowPositionCache), EnableRowPositionCache.ToString()),
                 new XElement(nameof(EnableImageDescriptions), EnableImageDescriptions.ToString()),
@@ -957,6 +975,7 @@ namespace CaptureTool
         {
             StartRow = 1;
             ImageGapRows = 1;
+            DescriptionColumnWidth = 50;
             RowManagementModeIndex = 0;
             EnableRowPositionCache = false;
             EnableImageDescriptions = false;

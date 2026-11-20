@@ -222,7 +222,8 @@ namespace CaptureTool
                    _saveWaitCancelled ||
                    (excelSettingsVisited &&
                     (startRowTextBox.Text != settings.StartRow.ToString() ||
-                     imageGapRowsTextBox.Text != settings.ImageGapRows.ToString())) ||
+                     imageGapRowsTextBox.Text != settings.ImageGapRows.ToString() ||
+                     descriptionColumnWidthTextBox.Text != settings.DescriptionColumnWidth.ToString())) ||
                    (settings.EnableImageDescriptions &&
                     !string.IsNullOrWhiteSpace(nextImageDescriptionTextBox?.Text)) ||
                    OpenImageGridWindows.Any(grid => grid.Photos.Any(photo =>
@@ -478,7 +479,8 @@ namespace CaptureTool
                 !string.IsNullOrWhiteSpace(nextImageDescriptionTextBox?.Text);
             bool layoutNotApplied = excelSettingsVisited &&
                 (startRowTextBox.Text != settings.StartRow.ToString() ||
-                 imageGapRowsTextBox.Text != settings.ImageGapRows.ToString());
+                 imageGapRowsTextBox.Text != settings.ImageGapRows.ToString() ||
+                 descriptionColumnWidthTextBox.Text != settings.DescriptionColumnWidth.ToString());
             var failure = photos.FirstOrDefault(photo => photo.HasDirtyDescription &&
                 (photo.StatusText.StartsWith("保存失敗", StringComparison.Ordinal) ||
                  photo.StatusText.StartsWith("未反映", StringComparison.Ordinal)));
@@ -843,6 +845,8 @@ namespace CaptureTool
                 return false;
             }
 
+            if (!TryApplyDescriptionColumnWidth()) return false;
+
             int previousStartRow = settings.StartRow;
             bool changed = startRow != settings.StartRow || gapRows != settings.ImageGapRows;
             settings.StartRow = startRow;
@@ -857,6 +861,60 @@ namespace CaptureTool
                 }
             }
             return true;
+        }
+
+        private bool TryReadDescriptionColumnWidth(out int width)
+        {
+            width = settings.DescriptionColumnWidth;
+            if (!excelSettingsVisited) return true;
+            if (!int.TryParse(descriptionColumnWidthTextBox.Text, out width) ||
+                width < 15 || width > 100)
+            {
+                MessageBox.Show(this, "説明列（A列）の幅は15～100の整数で指定してください。",
+                    "入力エラー", MessageBoxButton.OK, MessageBoxImage.Warning);
+                descriptionColumnWidthTextBox.Focus();
+                descriptionColumnWidthTextBox.SelectAll();
+                return false;
+            }
+            return true;
+        }
+
+        private bool TryApplyDescriptionColumnWidth()
+        {
+            if (!TryReadDescriptionColumnWidth(out int width)) return false;
+            settings.DescriptionColumnWidth = width;
+            return true;
+        }
+
+        private void ApplyDescriptionWidthToSheet_Click(object sender, RoutedEventArgs e)
+        {
+            EnqueueWorkbookOperation(() =>
+            {
+                if (closedXML == null || !closedXML.HasWorkbook) return;
+                if (!TryReadDescriptionColumnWidth(out int width)) return;
+                double current = closedXML.CurrentDescriptionColumnWidth;
+                if (MessageBox.Show(this,
+                    string.Format("選択中のシートのA列全体の幅を {0:0.##} から {1} に変更します。" +
+                                  "\n独自の表や画像配置にも影響する場合があります。続行しますか？",
+                                  current, width),
+                    "A列幅の変更", MessageBoxButton.YesNo, MessageBoxImage.Warning,
+                    MessageBoxResult.No) != MessageBoxResult.Yes) return;
+                settings.DescriptionColumnWidth = width;
+                bool changed = closedXML.ApplyDescriptionColumnWidthToCurrentSheet();
+                new OverlayDialog(changed ? "説明列の表示を更新" : "変更はありません")
+                { Owner = this }.Show();
+            });
+        }
+
+        private void ReformatDescriptions_Click(object sender, RoutedEventArgs e)
+        {
+            EnqueueWorkbookOperation(() =>
+            {
+                if (closedXML == null || !closedXML.HasWorkbook) return;
+                int changed = closedXML.ReformatCurrentSheetDescriptions();
+                new OverlayDialog(changed > 0 ? "説明の書式を更新" : "変更はありません")
+                { Owner = this }.Show();
+            });
         }
 
         private void EnableImageDescriptions_Changed(object sender, RoutedEventArgs e)

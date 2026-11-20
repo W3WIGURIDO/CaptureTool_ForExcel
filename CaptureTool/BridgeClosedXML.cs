@@ -220,21 +220,117 @@ namespace CaptureTool
             }
         }
 
+        private static bool HasDescriptionLineBreak(string text)
+        {
+            return !string.IsNullOrEmpty(text) &&
+                   (text.IndexOf('\n') >= 0 || text.IndexOf('\r') >= 0);
+        }
+
+        // Excelの列幅はおおむね半角文字換算。日本語は約2文字分として見積もる。
+        private static double RequiredDescriptionRowHeight(IXLWorksheet ws, string text)
+        {
+            int width = Math.Max(10, (int)Math.Floor(ws.Column(1).Width));
+            int lines = 0;
+            foreach (var line in text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
+            {
+                int units = line.Sum(ch => ch > 0x7F ? 2 : 1);
+                lines += Math.Max(1, (units + width - 1) / width);
+                if (lines >= 25) return 400; // Excelの行高上限(409.5pt)より小さくする
+            }
+            return Math.Min(400, 16 * lines);
+        }
+
+        private static bool NeedsDescriptionFormatting(IXLWorksheet ws, int startRow, string description)
+        {
+            bool wrap = HasDescriptionLineBreak(description);
+            var cell = ws.Cell(startRow - 1, 1);
+            return cell.Style.Alignment.WrapText != wrap ||
+                   (wrap && ws.Row(startRow - 1).Height + 0.001 <
+                       RequiredDescriptionRowHeight(ws, description));
+        }
+
+        // 値を変えずに既存説明の見た目だけ更新する際にも使用する。
+        private bool FormatDescriptionCell(IXLWorksheet ws, int startRow, string description)
+        {
+            if (!NeedsDescriptionFormatting(ws, startRow, description))
+                return false;
+            bool wrap = HasDescriptionLineBreak(description);
+            var cell = ws.Cell(startRow - 1, 1);
+            cell.Style.Alignment.WrapText = wrap;
+            if (wrap)
+            {
+                var row = ws.Row(startRow - 1);
+                row.Height = Math.Max(row.Height, RequiredDescriptionRowHeight(ws, description));
+            }
+            // 利用者が手動で設定した行高か判別できないので縮めない。
+            bottomRowCache.Remove(ws);
+            return true;
+        }
+
         private void WriteDescription(IXLWorksheet ws, int startRow, string description)
         {
             if (description != null && description.Length > 32767)
                 throw new ArgumentException("説明は32767文字以内にしてください。", nameof(description));
             var cell = ws.Cell(startRow - 1, 1);
             cell.Value = description ?? string.Empty;
-            if (string.IsNullOrEmpty(description)) return;
-            cell.Style.Alignment.WrapText = true;
-            // 行高は縮めない。既存画像と行の位置関係を極力変えない。
-            int width = Math.Max(4, (int)Math.Floor(ws.Column(1).Width));
-            int lines = description.Replace("\r\n", "\n").Replace('\r', '\n')
-                .Split('\n').Sum(line => Math.Max(1, (line.Length + width - 1) / width));
-            ws.Row(startRow - 1).Height =
-                Math.Max(ws.Row(startRow - 1).Height, Math.Min(150, 15 * lines));
+            FormatDescriptionCell(ws, startRow, description);
             bottomRowCache.Remove(ws);
+        }
+
+        private int ReformatExistingDescriptionsCore(IXLWorksheet ws)
+        {
+            int changed = 0;
+            // 同じ開始行の画像が複数あっても、説明セルは1回だけ書式変更する。
+            var processedRows = new HashSet<int>();
+            foreach (var picture in ws.Pictures)
+            {
+                double offset;
+                var top = PictureTopLeftCell(picture, out offset);
+                if (top == null)
+                    throw new InvalidOperationException("画像の配置セルを読み取れません。");
+                int row = top.Address.RowNumber;
+                if (top.Address.ColumnNumber != 1 || row < 2 ||
+                    (!settings.IsPicturePositionMode && row == 2) ||
+                    !processedRows.Add(row) || ws.Cell(row - 1, 1).IsMerged())
+                    continue; // 利用者が作成した結合セルには手を触れない
+                string value = GetDescription(ws, row, !settings.IsPicturePositionMode);
+                if (string.IsNullOrEmpty(value)) continue; // 無関係の空セルは変更しない
+                if (!NeedsDescriptionFormatting(ws, row, value)) continue;
+                ModFlag = true;
+                if (FormatDescriptionCell(ws, row, value)) changed++;
+            }
+            return changed;
+        }
+
+        public int ReformatCurrentSheetDescriptions()
+        {
+            int changed = ReformatExistingDescriptionsCore(worksheet);
+            if (changed > 0)
+            {
+                if (settings.IsPicturePositionMode)
+                    LoadWorkSheet(worksheet);
+                AutoSaveOrModFlagUpdate(); // 一覧中のすべての書式をまとめて1回保存
+            }
+            return changed;
+        }
+
+        // 既存シートのA列幅はUIの明示的な確認後にのみ変更する。
+        public bool ApplyDescriptionColumnWidthToCurrentSheet()
+        {
+            bool changed = Math.Abs(worksheet.Column(1).Width -
+                                    settings.DescriptionColumnWidth) > 0.001;
+            if (changed)
+            {
+                ModFlag = true;
+                worksheet.Column(1).Width = settings.DescriptionColumnWidth;
+                bottomRowCache.Remove(worksheet);
+            }
+            int formatted = ReformatExistingDescriptionsCore(worksheet);
+            if (!changed && formatted == 0) return false;
+            if (settings.IsPicturePositionMode)
+                LoadWorkSheet(worksheet);
+            AutoSaveOrModFlagUpdate();
+            return true;
         }
 
         // 一覧の画像が同じブック・同じ配置に残っている場合にだけ書き換える。
@@ -252,7 +348,9 @@ namespace CaptureTool
                 throw new InvalidOperationException("対象画像が変更されました。画像一覧を開き直してください。");
             ValidateDescriptionCellForEdit(ws, pic, entry.StartRow);
             string before = GetDescription(ws, entry.StartRow, !settings.IsPicturePositionMode);
-            if (before == (description ?? string.Empty)) return before;
+            string current = description ?? string.Empty;
+            if (before == current && !NeedsDescriptionFormatting(ws, entry.StartRow, current))
+                return before;
             ModFlag = true;
             WriteDescription(ws, entry.StartRow, description);
             if (ReferenceEquals(worksheet, ws) && settings.IsPicturePositionMode)
@@ -498,6 +596,7 @@ namespace CaptureTool
 
         public int CurrentWorksheetPosition => worksheet == null ? 0 : worksheet.Position;
         public string CurrentWorksheetName => worksheet?.Name;
+        public double CurrentDescriptionColumnWidth => worksheet?.Column(1).Width ?? 0;
 
         public void ChangeSelectionWorkSheet(int position)
         {
@@ -526,8 +625,9 @@ namespace CaptureTool
         {
             try
             {
-                workbook.AddWorksheet(name, workbook.Worksheets.Count + 1);
+                var addedSheet = workbook.AddWorksheet(name, workbook.Worksheets.Count + 1);
                 ModFlag = true;
+                addedSheet.Column(1).Width = settings.DescriptionColumnWidth;
                 SetWorkSheetsDictionary();
             }
             catch (Exception ex)
@@ -647,6 +747,7 @@ namespace CaptureTool
                 nextWorkbook = new XLWorkbook();
                 nextWorksheet = nextWorkbook.Worksheets.Add(
                     GetFirstWorksheetName(settings.FileName));
+                nextWorksheet.Column(1).Width = settings.DescriptionColumnWidth;
                 nextWorksheet.Cell(settings.StartRow, 1).Select();
                 nextSheets = nextWorkbook.Worksheets.OrderBy(ws => ws.Position)
                     .ToDictionary(ws => ws.Position, ws => ws.Name);
